@@ -85,11 +85,17 @@ func main() {
 	contactHandler := handlers.NewContactHandler(contactService)
 
 	// Reservas
+	personRepo := repository.NewPersonRepository(db)
+	clientRepo := repository.NewClientRepository(db)
+	paymentRepo := repository.NewPaymentRepository(db)
 	reservaRepo := repository.NewReservaRepository(db)
 	reservaHabitacionRepo := repository.NewReservaHabitacionRepository(db)
-	reservaService := application.NewReservaService(reservaRepo, reservaHabitacionRepo, habitacionRepo, emailClient)
+	reservaService := application.NewReservaService(reservaRepo, reservaHabitacionRepo, habitacionRepo, personRepo, clientRepo, paymentRepo, emailClient)
 	reservaHandler := handlers.NewReservaHandler(reservaService)
 
+	// Personas
+	personService := application.NewPersonService(personRepo)
+	personHandler := handlers.NewPersonHandler(personService)
 	// S3
 	S3Service, err := services.NewS3Service()
 	S3Handler := handlers.NewS3Handler(S3Service)
@@ -133,6 +139,9 @@ func main() {
 	reservas.Post("/verificar-disponibilidad", reservaHandler.VerificarDisponibilidad)
 	reservas.Get("/rango", reservaHandler.GetReservasEnRango)
 
+	// Rutas de personas
+	personas := api.Group("/personas")
+	personas.Get("/buscar", personHandler.GetPersonByDocumentNumber)
 	// Rutas de S3
 	s3 := api.Group("/upload")
 	s3.Post("/imagenes", S3Handler.HandleUploadFile)

@@ -204,7 +204,7 @@ func (r *reservaRepository) UpdateReservaEstado(id int, status domain.EstadoRese
 }
 
 // GetReservasCliente obtiene todas las reservas de un cliente
-func (r *reservaRepository) GetReservasCliente(client_id string) ([]domain.Reserva, error) {
+func (r *reservaRepository) GetReservasCliente(clientID int) ([]domain.Reserva, error) {
 	query := `
 		SELECT 
 			r.reservation_id,
@@ -220,7 +220,7 @@ func (r *reservaRepository) GetReservasCliente(client_id string) ([]domain.Reser
 		ORDER BY r.confirmation_date DESC
 	`
 
-	rows, err := r.db.Query(query, client_id)
+	rows, err := r.db.Query(query, clientID)
 	if err != nil {
 		return nil, fmt.Errorf("error al obtener reservas del cliente: %w", err)
 	}
