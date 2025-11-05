@@ -84,10 +84,17 @@ func main() {
 	contactHandler := handlers.NewContactHandler(contactService)
 
 	// Reservas
+	personRepo := repository.NewPersonRepository(db)
+	clientRepo := repository.NewClientRepository(db)
+	paymentRepo := repository.NewPaymentRepository(db)
 	reservaRepo := repository.NewReservaRepository(db)
 	reservaHabitacionRepo := repository.NewReservaHabitacionRepository(db)
-	reservaService := application.NewReservaService(reservaRepo, reservaHabitacionRepo, habitacionRepo, emailClient)
+	reservaService := application.NewReservaService(reservaRepo, reservaHabitacionRepo, habitacionRepo, personRepo, clientRepo, paymentRepo, emailClient)
 	reservaHandler := handlers.NewReservaHandler(reservaService)
+
+	// Personas
+	personService := application.NewPersonService(personRepo)
+	personHandler := handlers.NewPersonHandler(personService)
 
 	api := app.Group("/api")
 
@@ -127,6 +134,10 @@ func main() {
 	reservas.Post("/:id/confirmar-pago", reservaHandler.ConfirmarPago) // NUEVO: Confirma pago y envía email
 	reservas.Post("/verificar-disponibilidad", reservaHandler.VerificarDisponibilidad)
 	reservas.Get("/rango", reservaHandler.GetReservasEnRango)
+
+	// Rutas de personas
+	personas := api.Group("/personas")
+	personas.Get("/buscar", personHandler.GetPersonByDocumentNumber)
 
 	log.Printf("Server starting on port %s", cfg.ServerPort)
 	if err := app.Listen(":" + cfg.ServerPort); err != nil {

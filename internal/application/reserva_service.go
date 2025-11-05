@@ -12,6 +12,9 @@ type ReservaService struct {
 	reservaRepo           domain.ReservaRepository
 	reservaHabitacionRepo domain.ReservaHabitacionRepository
 	habitacionRepo        domain.HabitacionRepository
+	personRepo            domain.PersonRepository
+	clientRepo            domain.ClientRepository
+	paymentRepo           domain.PaymentRepository
 	emailClient           *email.Client
 }
 
@@ -20,12 +23,18 @@ func NewReservaService(
 	reservaRepo domain.ReservaRepository,
 	reservaHabitacionRepo domain.ReservaHabitacionRepository,
 	habitacionRepo domain.HabitacionRepository,
+	personRepo domain.PersonRepository,
+	clientRepo domain.ClientRepository,
+	paymentRepo domain.PaymentRepository,
 	emailClient *email.Client,
 ) *ReservaService {
 	return &ReservaService{
 		reservaRepo:           reservaRepo,
 		reservaHabitacionRepo: reservaHabitacionRepo,
 		habitacionRepo:        habitacionRepo,
+		personRepo:            personRepo,
+		clientRepo:            clientRepo,
+		paymentRepo:           paymentRepo,
 		emailClient:           emailClient,
 	}
 }
@@ -106,13 +115,117 @@ func (s *ReservaService) CreateReserva(reserva *domain.Reserva) error {
 	return nil
 }
 
+// CreateReservaWithClient crea una reserva buscando/creando primero el cliente
+func (s *ReservaService) CreateReservaWithClient(person *domain.Person, reserva *domain.Reserva) error {
+	// 1. Buscar persona por document_number
+	existingPerson, err := s.personRepo.FindByDocumentNumber(person.DocumentNumber)
+	if err != nil {
+		return fmt.Errorf("error al buscar persona: %w", err)
+	}
+
+	var personID int
+
+	// 2. Si no existe, crear la persona
+	if existingPerson == nil {
+		if err := s.personRepo.Create(person); err != nil {
+			return fmt.Errorf("error al crear persona: %w", err)
+		}
+		personID = person.PersonID
+	} else {
+		personID = existingPerson.PersonID
+	}
+
+	// 3. Buscar el client_id usando person_id
+	clientID, err := s.clientRepo.GetClientIDByPersonID(personID)
+	if err != nil {
+		// Si no existe el cliente, crearlo
+		clientID, err = s.clientRepo.Create(personID)
+		if err != nil {
+			return fmt.Errorf("error al crear cliente: %w", err)
+		}
+	}
+
+	// 4. Asignar el client_id a la reserva
+	reserva.ClienteID = clientID
+
+	// 5. Crear la reserva con el resto de la lógica existente
+	return s.CreateReserva(reserva)
+}
+
+// CreateReservaWithClientAndPayment crea una reserva con cliente y pago
+func (s *ReservaService) CreateReservaWithClientAndPayment(person *domain.Person, reserva *domain.Reserva, payment *domain.Payment) error {
+	// 1. Buscar persona por document_number
+	existingPerson, err := s.personRepo.FindByDocumentNumber(person.DocumentNumber)
+	if err != nil {
+		return fmt.Errorf("error al buscar persona: %w", err)
+	}
+
+	var personID int
+
+	// 2. Si no existe, crear la persona con los datos del JSON
+	if existingPerson == nil {
+		if err := s.personRepo.Create(person); err != nil {
+			return fmt.Errorf("error al crear persona: %w", err)
+		}
+		personID = person.PersonID
+	} else {
+		// Si existe, actualizar sus datos con la información del JSON
+		// Esto asegura que el email y otros datos estén actualizados
+		existingPerson.Name = person.Name
+		existingPerson.FirstSurname = person.FirstSurname
+		existingPerson.SecondSurname = person.SecondSurname
+		existingPerson.Gender = person.Gender
+		existingPerson.Email = person.Email // ← IMPORTANTE: Actualizar el email del JSON
+		existingPerson.Phone1 = person.Phone1
+		existingPerson.Phone2 = person.Phone2
+		existingPerson.ReferenceCity = person.ReferenceCity
+		existingPerson.ReferenceCountry = person.ReferenceCountry
+		existingPerson.BirthDate = person.BirthDate
+
+		if err := s.personRepo.Update(existingPerson); err != nil {
+			return fmt.Errorf("error al actualizar persona: %w", err)
+		}
+		personID = existingPerson.PersonID
+	}
+
+	// 3. Buscar el client_id usando person_id
+	clientID, err := s.clientRepo.GetClientIDByPersonID(personID)
+	if err != nil {
+		// Si no existe el cliente, crearlo
+		clientID, err = s.clientRepo.Create(personID)
+		if err != nil {
+			return fmt.Errorf("error al crear cliente: %w", err)
+		}
+	}
+
+	// 4. Asignar el client_id a la reserva
+	reserva.ClienteID = clientID
+
+	// 5. Crear la reserva
+	if err := s.CreateReserva(reserva); err != nil {
+		return err
+	}
+
+	// 6. Si se proporcionó pago, crearlo
+	if payment != nil {
+		payment.ReservationID = reserva.ID
+		if err := s.paymentRepo.Create(payment); err != nil {
+			// Si falla el pago, la reserva ya fue creada
+			// Puedes decidir si quieres rollback o solo registrar el error
+			return fmt.Errorf("reserva creada pero error al registrar pago: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // GetReservaByID obtiene una reserva por su ID
 func (s *ReservaService) GetReservaByID(id int) (*domain.Reserva, error) {
 	return s.reservaRepo.GetReservaByID(id)
 }
 
 // GetReservasCliente obtiene todas las reservas de un cliente
-func (s *ReservaService) GetReservasCliente(clienteID string) ([]domain.Reserva, error) {
+func (s *ReservaService) GetReservasCliente(clienteID int) ([]domain.Reserva, error) {
 	return s.reservaRepo.GetReservasCliente(clienteID)
 }
 
@@ -200,40 +313,82 @@ func (s *ReservaService) confirmarReservaInternal(id int, enviarEmail bool) erro
 
 // enviarEmailConfirmacion envía el email de confirmación de la reserva
 func (s *ReservaService) enviarEmailConfirmacion(reserva *domain.Reserva) error {
-	// Preparar información de habitaciones
-	habitaciones := make([]email.HabitacionInfo, len(reserva.Habitaciones))
-	for i, hab := range reserva.Habitaciones {
-		// Verificar que la habitación no sea nil
-		if hab.Habitacion == nil {
-			return fmt.Errorf("habitación %d no tiene datos completos", hab.HabitacionID)
-		}
-
-		noches := int(hab.FechaSalida.Sub(hab.FechaEntrada).Hours() / 24)
-		habitaciones[i] = email.HabitacionInfo{
-			Nombre:       hab.Habitacion.Nombre,
-			Numero:       hab.Habitacion.Numero,
-			FechaEntrada: hab.FechaEntrada,
-			FechaSalida:  hab.FechaSalida,
-			Precio:       hab.Precio,
-			Noches:       noches,
-		}
+	// Obtener el email de la persona asociada al cliente
+	email, err := s.clientRepo.GetPersonEmailByClientID(reserva.ClienteID)
+	if err != nil {
+		return fmt.Errorf("error al obtener email del cliente: %w", err)
 	}
 
-	// Preparar información de la reserva
-	reservaInfo := email.ReservaInfo{
-		ID:                reserva.ID,
-		ClienteEmail:      reserva.ClienteID, // El clienteID es el email
-		CantidadAdultos:   reserva.CantidadAdultos,
-		CantidadNinhos:    reserva.CantidadNinhos,
-		FechaConfirmacion: reserva.FechaConfirmacion,
-		Subtotal:          reserva.Subtotal,
-		Descuento:         reserva.Descuento,
-		Total:             reserva.Subtotal - reserva.Descuento,
-		Habitaciones:      habitaciones,
+	// Construir el contenido del email
+	subject := fmt.Sprintf("Confirmación de Reserva #%d - Hotel Inca", reserva.ID)
+
+	// Crear el cuerpo del email en HTML
+	htmlBody := fmt.Sprintf(`
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<style>
+				body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+				.container { max-width: 600px; margin: 0 auto; padding: 20px; }
+				.header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+				.content { padding: 20px; background-color: #f9f9f9; }
+				.footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+				.details { background-color: white; padding: 15px; margin: 10px 0; border-radius: 5px; }
+				.total { font-size: 18px; font-weight: bold; color: #4CAF50; }
+			</style>
+		</head>
+		<body>
+			<div class="container">
+				<div class="header">
+					<h1>Hotel Inca</h1>
+					<h2>Confirmación de Reserva</h2>
+				</div>
+				<div class="content">
+					<p>Estimado/a cliente,</p>
+					<p>Su reserva ha sido confirmada exitosamente. A continuación los detalles:</p>
+					
+					<div class="details">
+						<h3>Detalles de la Reserva</h3>
+						<p><strong>Número de Reserva:</strong> #%d</p>
+						<p><strong>Fecha de Confirmación:</strong> %s</p>
+						<p><strong>Cantidad de Adultos:</strong> %d</p>
+						<p><strong>Cantidad de Niños:</strong> %d</p>
+						<p><strong>Estado:</strong> %s</p>
+					</div>
+					
+					<div class="details">
+						<h3>Información de Pago</h3>
+						<p><strong>Subtotal:</strong> S/. %.2f</p>
+						<p><strong>Descuento:</strong> S/. %.2f</p>
+						<p class="total">Total: S/. %.2f</p>
+					</div>
+					
+					<p>Gracias por confiar en Hotel Inca. Esperamos verle pronto.</p>
+				</div>
+				<div class="footer">
+					<p>Hotel Inca - Reservas</p>
+					<p>Este es un correo automático, por favor no responder.</p>
+				</div>
+			</div>
+		</body>
+		</html>
+	`,
+		reserva.ID,
+		reserva.FechaConfirmacion.Format("02/01/2006 15:04"),
+		reserva.CantidadAdultos,
+		reserva.CantidadNinhos,
+		reserva.Estado,
+		reserva.Subtotal,
+		reserva.Descuento,
+		reserva.Subtotal-reserva.Descuento,
+	)
+
+	// Enviar el email
+	if err := s.emailClient.SendEmail(email, subject, htmlBody); err != nil {
+		return fmt.Errorf("error al enviar email: %w", err)
 	}
 
-	// Enviar email
-	return s.emailClient.SendReservaConfirmacion(reservaInfo)
+	return nil
 }
 
 // CompletarReserva marca una reserva como completada

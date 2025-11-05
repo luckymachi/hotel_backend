@@ -24,9 +24,32 @@ func NewReservaHandler(service *application.ReservaService) *ReservaHandler {
 type CreateReservaRequest struct {
 	CantidadAdultos int                       `json:"cantidadAdultos"`
 	CantidadNinhos  int                       `json:"cantidadNinhos"`
-	ClienteID       string                    `json:"clienteId"`
 	Descuento       float64                   `json:"descuento"`
+	Cliente         ClienteData               `json:"cliente"`
 	Habitaciones    []CreateHabitacionReserva `json:"habitaciones"`
+	Pago            *PaymentData              `json:"pago,omitempty"` // Opcional
+}
+
+// PaymentData representa los datos del pago
+type PaymentData struct {
+	Amount        float64 `json:"amount"`
+	PaymentMethod string  `json:"paymentMethod"` // "card", "transfer", "cash"
+	Status        string  `json:"status"`        // "pending", "completed", "failed"
+}
+
+// ClienteData representa los datos del cliente para crear/buscar la persona
+type ClienteData struct {
+	Name             string  `json:"name"`
+	FirstSurname     string  `json:"firstSurname"`
+	SecondSurname    *string `json:"secondSurname,omitempty"`
+	DocumentNumber   string  `json:"documentNumber"`
+	Gender           string  `json:"gender"`
+	Email            string  `json:"email"`
+	Phone1           string  `json:"phone1"`
+	Phone2           *string `json:"phone2,omitempty"`
+	ReferenceCity    string  `json:"referenceCity"`
+	ReferenceCountry string  `json:"referenceCountry"`
+	BirthDate        string  `json:"birthDate"` // Formato: YYYY-MM-DD
 }
 
 // CreateHabitacionReserva representa una habitación a reservar
@@ -59,15 +82,23 @@ func (h *ReservaHandler) CreateReserva(c *fiber.Ctx) error {
 	}
 
 	// Validaciones básicas
-	if req.ClienteID == "" {
+	if req.Cliente.DocumentNumber == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "El clienteId es requerido",
+			"error": "El número de documento del cliente es requerido",
 		})
 	}
 
 	if len(req.Habitaciones) == 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Debe incluir al menos una habitación",
+		})
+	}
+
+	// Parsear fecha de nacimiento
+	birthDate, err := time.Parse("2006-01-02", req.Cliente.BirthDate)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Formato de fecha de nacimiento inválido. Use YYYY-MM-DD",
 		})
 	}
 
@@ -97,18 +128,47 @@ func (h *ReservaHandler) CreateReserva(c *fiber.Ctx) error {
 		}
 	}
 
-	// Crear la reserva
+	// Crear el objeto Person con los datos del cliente
+	// Convertir el género del frontend (Masculino/Femenino/Otro) a BD (M/F/O)
+	person := &domain.Person{
+		Name:             req.Cliente.Name,
+		FirstSurname:     req.Cliente.FirstSurname,
+		SecondSurname:    req.Cliente.SecondSurname,
+		DocumentNumber:   req.Cliente.DocumentNumber,
+		Gender:           convertGenderToDatabase(req.Cliente.Gender),
+		Email:            req.Cliente.Email,
+		Phone1:           req.Cliente.Phone1,
+		Phone2:           req.Cliente.Phone2,
+		ReferenceCity:    req.Cliente.ReferenceCity,
+		ReferenceCountry: req.Cliente.ReferenceCountry,
+		Active:           true,
+		CreationDate:     time.Now(),
+		BirthDate:        birthDate,
+	}
+
+	// Crear la reserva con los datos del cliente
 	reserva := &domain.Reserva{
 		CantidadAdultos:   req.CantidadAdultos,
 		CantidadNinhos:    req.CantidadNinhos,
-		ClienteID:         req.ClienteID,
 		Descuento:         req.Descuento,
 		Estado:            domain.ReservaPendiente,
 		FechaConfirmacion: time.Now(),
 		Habitaciones:      habitaciones,
 	}
 
-	if err := h.service.CreateReserva(reserva); err != nil {
+	// Crear el pago si se proporcionó
+	var payment *domain.Payment
+	if req.Pago != nil {
+		payment = &domain.Payment{
+			Amount:        req.Pago.Amount,
+			Date:          time.Now(),
+			PaymentMethod: domain.PaymentMethod(req.Pago.PaymentMethod),
+			Status:        domain.PaymentStatus(req.Pago.Status),
+		}
+	}
+
+	// Llamar al servicio para crear la reserva con el cliente y el pago
+	if err := h.service.CreateReservaWithClientAndPayment(person, reserva, payment); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
 		})
@@ -144,10 +204,17 @@ func (h *ReservaHandler) GetReservaByID(c *fiber.Ctx) error {
 
 // GetReservasCliente obtiene todas las reservas de un cliente
 func (h *ReservaHandler) GetReservasCliente(c *fiber.Ctx) error {
-	clienteID := c.Params("clienteId")
-	if clienteID == "" {
+	clienteIDStr := c.Params("clienteId")
+	if clienteIDStr == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "clienteId es requerido",
+		})
+	}
+
+	clienteID, err := strconv.Atoi(clienteIDStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "clienteId debe ser un número",
 		})
 	}
 

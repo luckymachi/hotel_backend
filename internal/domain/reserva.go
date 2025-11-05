@@ -19,7 +19,7 @@ type Reserva struct {
 	CantidadAdultos   int                 `json:"cantidadAdultos"`
 	CantidadNinhos    int                 `json:"cantidadNinhos"`
 	Estado            EstadoReserva       `json:"estado"`
-	ClienteID         string              `json:"clienteId"`
+	ClienteID         int                 `json:"clienteId"`
 	Subtotal          float64             `json:"subtotal"`
 	Descuento         float64             `json:"descuento"`
 	FechaConfirmacion time.Time           `json:"fechaConfirmacion"`
@@ -35,5 +35,5 @@ type ReservaRepository interface {
 	// UpdateReservaEstado actualiza el estado de una reserva
 	UpdateReservaEstado(id int, estado EstadoReserva) error
 	// GetReservasCliente obtiene todas las reservas de un cliente
-	GetReservasCliente(clienteID string) ([]Reserva, error)
+	GetReservasCliente(clienteID int) ([]Reserva, error)
 }
