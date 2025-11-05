@@ -10,6 +10,7 @@ import (
 	"github.com/Maxito7/hotel_backend/internal/infrastructure/repository"
 	handlers "github.com/Maxito7/hotel_backend/internal/interfaces/http"
 	"github.com/Maxito7/hotel_backend/internal/openai"
+	services "github.com/Maxito7/hotel_backend/internal/service"
 	"github.com/Maxito7/hotel_backend/internal/tavily"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -95,6 +96,9 @@ func main() {
 	// Personas
 	personService := application.NewPersonService(personRepo)
 	personHandler := handlers.NewPersonHandler(personService)
+	// S3
+	S3Service, err := services.NewS3Service()
+	S3Handler := handlers.NewS3Handler(S3Service)
 
 	api := app.Group("/api")
 
@@ -138,6 +142,9 @@ func main() {
 	// Rutas de personas
 	personas := api.Group("/personas")
 	personas.Get("/buscar", personHandler.GetPersonByDocumentNumber)
+	// Rutas de S3
+	s3 := api.Group("/upload")
+	s3.Post("/imagenes", S3Handler.HandleUploadFile)
 
 	log.Printf("Server starting on port %s", cfg.ServerPort)
 	if err := app.Listen(":" + cfg.ServerPort); err != nil {
