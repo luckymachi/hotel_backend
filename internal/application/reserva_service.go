@@ -141,7 +141,7 @@ func (s *ReservaService) CreateReservaWithClient(person *domain.Person, reserva 
 	clientID, err := s.clientRepo.GetClientIDByPersonID(personID)
 	if err != nil {
 		// Si no existe el cliente, crearlo
-		clientID, err = s.clientRepo.Create(personID)
+		clientID, err = s.clientRepo.Create(personID, domain.CaptureChannelWebpage, domain.CaptureStatusCliente, reserva.CantidadNinhos)
 		if err != nil {
 			return fmt.Errorf("error al crear cliente: %w", err)
 		}
@@ -194,7 +194,7 @@ func (s *ReservaService) CreateReservaWithClientAndPayment(person *domain.Person
 	clientID, err := s.clientRepo.GetClientIDByPersonID(personID)
 	if err != nil {
 		// Si no existe el cliente, crearlo
-		clientID, err = s.clientRepo.Create(personID)
+		clientID, err = s.clientRepo.Create(personID, domain.CaptureChannelWebpage, domain.CaptureStatusCliente, reserva.CantidadNinhos)
 		if err != nil {
 			return fmt.Errorf("error al crear cliente: %w", err)
 		}
