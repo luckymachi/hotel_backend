@@ -1,0 +1,43 @@
+name: Deploy to EC2 (prod)
+
+on:
+  push:
+    branches: ["prod"]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push to GHCR
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build & tag image
+        run: |
+          IMAGE=ghcr.io/${{ github.repository }}:prod
+          docker build -t "$IMAGE" .
+          docker tag "$IMAGE" ghcr.io/${{ github.repository }}:${{ github.sha }}
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Push image
+        run: |
+          docker push $IMAGE
+          docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+      - name: SSH deploy to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}          # ec2-54-162-139-200.compute-1.amazonaws.com
+          username: ${{ secrets.EC2_USER }}      # admin (your Debian box)
+          key: ${{ secrets.EC2_SSH_KEY }}        # contents of DPKeyPair.pem
+          script: |
+            set -e
+            cd /opt/hotel-backend
+            docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+            docker compose pull
+            docker compose up -d
+            docker image prune -f
