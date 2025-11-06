@@ -16,17 +16,21 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build & tag image
+      - name: Build & tag image (lowercase repo)
         run: |
-          IMAGE=ghcr.io/${{ github.repository }}:prod
-          docker build -t "$IMAGE" .
-          docker tag "$IMAGE" ghcr.io/${{ github.repository }}:${{ github.sha }}
+          REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${REPO_LC}:prod"
+          SHA_IMAGE="ghcr.io/${REPO_LC}:${{ github.sha }}"
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+          echo "SHA_IMAGE=$SHA_IMAGE" >> $GITHUB_ENV
+          docker build -t "$IMAGE" .
+          docker tag "$IMAGE" "$SHA_IMAGE"
 
       - name: Push image
         run: |
-          docker push $IMAGE
-          docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
+          docker push "$IMAGE"
+          docker push "$SHA_IMAGE"
+      
 
       - name: SSH deploy to EC2
         uses: appleboy/ssh-action@v1.2.0
