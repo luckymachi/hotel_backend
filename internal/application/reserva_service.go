@@ -75,17 +75,19 @@ func (s *ReservaService) CreateReserva(reserva *domain.Reserva) error {
 		reserva.Habitaciones[i].Precio = hab.Precio
 	}
 
-	// Calcular subtotal
-	subtotal := 0.0
-	for _, hab := range reserva.Habitaciones {
-		// Calcular días de estancia
-		dias := hab.FechaSalida.Sub(hab.FechaEntrada).Hours() / 24
-		if dias < 1 {
-			dias = 1
+	// Calcular subtotal solo si no fue proporcionado
+	if reserva.Subtotal <= 0 {
+		subtotal := 0.0
+		for _, hab := range reserva.Habitaciones {
+			// Calcular días de estancia
+			dias := hab.FechaSalida.Sub(hab.FechaEntrada).Hours() / 24
+			if dias < 1 {
+				dias = 1
+			}
+			subtotal += hab.Precio * dias
 		}
-		subtotal += hab.Precio * dias
+		reserva.Subtotal = subtotal
 	}
-	reserva.Subtotal = subtotal
 
 	// Si no se especificó descuento, establecerlo en 0
 	if reserva.Descuento < 0 {
