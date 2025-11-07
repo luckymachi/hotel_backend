@@ -3,6 +3,7 @@ package email
 import (
 	"crypto/tls"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
@@ -58,6 +59,8 @@ func (c *Client) SendEmail(to, subject, htmlBody string) error {
 	m.SetBodyString(mail.TypeTextHTML, htmlBody)
 
 	// Crear cliente SMTP
+	log.Printf("SMTP: connecting to %s:%d as user=%s", c.host, c.port, c.user)
+
 	client, err := mail.NewClient(c.host,
 		mail.WithPort(c.port),
 		mail.WithSMTPAuth(mail.SMTPAuthPlain),
@@ -69,12 +72,13 @@ func (c *Client) SendEmail(to, subject, htmlBody string) error {
 		}),
 	)
 	if err != nil {
-		return fmt.Errorf("error al crear cliente SMTP: %w", err)
+		return fmt.Errorf("error al crear cliente SMTP (host=%s port=%d user=%s): %w", c.host, c.port, c.user, err)
 	}
 
 	// Enviar correo
 	if err := client.DialAndSend(m); err != nil {
-		return fmt.Errorf("error al enviar correo: %w", err)
+		// Añadir contexto útil al error sin exponer credenciales
+		return fmt.Errorf("error al enviar correo (host=%s port=%d user=%s): %w", c.host, c.port, c.user, err)
 	}
 
 	return nil

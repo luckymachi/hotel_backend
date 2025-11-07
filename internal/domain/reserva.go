@@ -24,6 +24,16 @@ type Reserva struct {
 	Descuento         float64             `json:"descuento"`
 	FechaConfirmacion time.Time           `json:"fechaConfirmacion"`
 	Habitaciones      []ReservaHabitacion `json:"habitaciones"`
+	Servicios         []ReservaServicio   `json:"servicios,omitempty"`
+}
+
+// ReservaServicio representa la relación entre una reserva y un servicio
+type ReservaServicio struct {
+	ReservaID int       `json:"reservaId"`
+	ServiceID int       `json:"serviceId"`
+	StartDate time.Time `json:"startDate"`
+	EndDate   time.Time `json:"endDate"`
+	Status    int       `json:"status"` // 1: Activo, 0: Inactivo
 }
 
 // ReservaRepository define las operaciones disponibles con las reservas
@@ -36,4 +46,6 @@ type ReservaRepository interface {
 	UpdateReservaEstado(id int, estado EstadoReserva) error
 	// GetReservasCliente obtiene todas las reservas de un cliente
 	GetReservasCliente(clienteID int) ([]Reserva, error)
+	// CreateReservaServicios crea los servicios asociados a una reserva
+	CreateReservaServicios(reservaID int, servicios []ReservaServicio) error
 }

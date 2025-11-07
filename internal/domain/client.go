@@ -11,7 +11,13 @@ type ClientRepository interface {
 	// GetClientIDByPersonID obtiene el client_id dado un person_id
 	GetClientIDByPersonID(personID int) (int, error)
 	// Create crea un nuevo cliente
-	Create(personID int) (int, error)
+	Create(personID int, captureChannel string, captureStatus string, travelsWithChildren int) (int, error)
 	// GetPersonEmailByClientID obtiene el email de la persona asociada a un cliente
 	GetPersonEmailByClientID(clientID int) (string, error)
 }
+
+// Constantes para los valores del enum y campos relacionados
+const (
+	CaptureChannelWebpage = "Webpage"
+	CaptureStatusCliente  = "Cliente"
+)
