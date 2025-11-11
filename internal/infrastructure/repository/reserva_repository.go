@@ -171,6 +171,34 @@ func (r *reservaRepository) CreateReserva(reserva *domain.Reserva) error {
 		reserva.Habitaciones[i].Estado = 1
 	}
 
+	// Insertar los servicios de la reserva
+	if len(reserva.Servicios) > 0 {
+		for _, servicio := range reserva.Servicios {
+			servicioQuery := `
+				INSERT INTO reservation_service (
+					reservation_id,
+					service_id,
+					start_date,
+					end_date,
+					status
+				) VALUES ($1, $2, $3, $4, $5)
+			`
+
+			_, err = tx.Exec(
+				servicioQuery,
+				reserva.ID,
+				servicio.ServiceID,
+				servicio.StartDate,
+				servicio.EndDate,
+				1, // status activo
+			)
+
+			if err != nil {
+				return fmt.Errorf("error al crear servicio de reserva: %w", err)
+			}
+		}
+	}
+
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("error al confirmar transacción: %w", err)
 	}
@@ -297,4 +325,34 @@ func (r *reservaRepository) GetReservasCliente(clientID int) ([]domain.Reserva, 
 	}
 
 	return reservas, nil
+}
+
+// CreateReservaServicios crea los servicios asociados a una reserva
+func (r *reservaRepository) CreateReservaServicios(reservaID int, servicios []domain.ReservaServicio) error {
+	for _, servicio := range servicios {
+		query := `
+			INSERT INTO reservation_service (
+				reservation_id,
+				service_id,
+				start_date,
+				end_date,
+				status
+			) VALUES ($1, $2, $3, $4, $5)
+		`
+
+		_, err := r.db.Exec(
+			query,
+			reservaID,
+			servicio.ServiceID,
+			servicio.StartDate,
+			servicio.EndDate,
+			servicio.Status,
+		)
+
+		if err != nil {
+			return fmt.Errorf("error al crear servicio de reserva: %w", err)
+		}
+	}
+
+	return nil
 }
