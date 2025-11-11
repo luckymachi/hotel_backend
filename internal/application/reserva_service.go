@@ -16,6 +16,7 @@ type ReservaService struct {
 	clientRepo            domain.ClientRepository
 	paymentRepo           domain.PaymentRepository
 	emailClient           *email.Client
+	surveyService         *SatisfactionSurveyService
 }
 
 // NewReservaService crea una nueva instancia del servicio de reservas
@@ -27,6 +28,7 @@ func NewReservaService(
 	clientRepo domain.ClientRepository,
 	paymentRepo domain.PaymentRepository,
 	emailClient *email.Client,
+	surveyService *SatisfactionSurveyService,
 ) *ReservaService {
 	return &ReservaService{
 		reservaRepo:           reservaRepo,
@@ -36,6 +38,7 @@ func NewReservaService(
 		clientRepo:            clientRepo,
 		paymentRepo:           paymentRepo,
 		emailClient:           emailClient,
+		surveyService:         surveyService,
 	}
 }
 
@@ -214,6 +217,11 @@ func (s *ReservaService) CreateReservaWithClientAndPayment(person *domain.Person
 			// Puedes decidir si quieres rollback o solo registrar el error
 			return fmt.Errorf("reserva creada pero error al registrar pago: %w", err)
 		}
+	}
+
+	// 7. Generar token de encuesta y enviar email (solo si surveyService está disponible)
+	if s.surveyService != nil {
+		s.generarYEnviarEncuesta(reserva.ID, clientID, person.Email)
 	}
 
 	return nil
@@ -412,4 +420,86 @@ func (s *ReservaService) GetReservasEnRango(fechaInicio, fechaFin time.Time) ([]
 	}
 
 	return s.reservaHabitacionRepo.GetReservasEnRango(fechaInicio, fechaFin)
+}
+
+// generarYEnviarEncuesta genera un token de encuesta y envía el email al cliente
+func (s *ReservaService) generarYEnviarEncuesta(reservaID, clienteID int, email string) {
+	// Generar token de encuesta
+	token, err := s.surveyService.CreateTokenForReservation(reservaID, clienteID)
+	if err != nil {
+		// Log el error pero no fallar la creación de reserva
+		fmt.Printf("Error al crear token de encuesta: %v\n", err)
+		return
+	}
+
+	// Construir link de encuesta (ajusta la URL según tu dominio)
+	surveyLink := fmt.Sprintf("http://localhost:3000/encuesta?token=%s", token.Token)
+
+	// Construir el email
+	emailBody := fmt.Sprintf(`
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<meta charset="UTF-8">
+		</head>
+		<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+			<div style="background-color: #f8f9fa; padding: 20px; border-radius: 10px;">
+				<h2 style="color: #333;">¡Gracias por tu reserva!</h2>
+				
+				<p style="color: #555; font-size: 16px;">
+					Tu reserva ha sido confirmada exitosamente.
+				</p>
+				
+				<p style="color: #555; font-size: 16px;">
+					Cuando completes tu estadía, nos encantaría conocer tu opinión. 
+					Por favor, completa nuestra breve encuesta de satisfacción:
+				</p>
+				
+				<div style="text-align: center; margin: 30px 0;">
+					<a href="%s" style="
+						background-color: #4CAF50;
+						color: white;
+						padding: 15px 30px;
+						text-decoration: none;
+						border-radius: 5px;
+						font-size: 18px;
+						display: inline-block;
+					">
+						Completar Encuesta
+					</a>
+				</div>
+				
+				<p style="color: #999; font-size: 14px;">
+					Este link es válido por 30 días.
+				</p>
+				
+				<p style="color: #555; font-size: 16px;">
+					Si tienes alguna pregunta o necesitas asistencia, 
+					no dudes en contactarnos.
+				</p>
+				
+				<p style="color: #333; font-size: 16px;">
+					Saludos,<br>
+					<strong>Equipo del Hotel</strong>
+				</p>
+			</div>
+		</body>
+		</html>
+	`, surveyLink)
+
+	// Enviar el email
+	if s.emailClient != nil {
+		err = s.emailClient.SendEmail(
+			email,
+			"Encuesta de Satisfacción - Tu Opinión es Importante",
+			emailBody,
+		)
+
+		if err != nil {
+			// Log el error pero no fallar la creación de reserva
+			fmt.Printf("Error al enviar email de encuesta: %v\n", err)
+		} else {
+			fmt.Printf("Email de encuesta enviado a: %s\n", email)
+		}
+	}
 }

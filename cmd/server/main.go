@@ -84,18 +84,27 @@ func main() {
 	contactService := application.NewContactService(contactRepo, emailClient)
 	contactHandler := handlers.NewContactHandler(contactService)
 
-	// Reservas
+	// Personas y Clientes (necesarios para reservas y encuestas)
 	personRepo := repository.NewPersonRepository(db)
 	clientRepo := repository.NewClientRepository(db)
+	personService := application.NewPersonService(personRepo)
+	personHandler := handlers.NewPersonHandler(personService)
+
+	// Reservas (repositorios)
 	paymentRepo := repository.NewPaymentRepository(db)
 	reservaRepo := repository.NewReservaRepository(db)
 	reservaHabitacionRepo := repository.NewReservaHabitacionRepository(db)
-	reservaService := application.NewReservaService(reservaRepo, reservaHabitacionRepo, habitacionRepo, personRepo, clientRepo, paymentRepo, emailClient)
+
+	// Encuestas de satisfacción (crear ANTES de ReservaService)
+	surveyRepo := repository.NewSatisfactionSurveyRepository(db)
+	tokenRepo := repository.NewSurveyTokenRepository(db)
+	surveyService := application.NewSatisfactionSurveyService(surveyRepo, reservaRepo, tokenRepo)
+	surveyHandler := handlers.NewSatisfactionSurveyHandler(surveyService)
+
+	// Reservas (servicio - ahora puede usar surveyService)
+	reservaService := application.NewReservaService(reservaRepo, reservaHabitacionRepo, habitacionRepo, personRepo, clientRepo, paymentRepo, emailClient, surveyService)
 	reservaHandler := handlers.NewReservaHandler(reservaService)
 
-	// Personas
-	personService := application.NewPersonService(personRepo)
-	personHandler := handlers.NewPersonHandler(personService)
 	// S3
 	S3Service, err := services.NewS3Service()
 	S3Handler := handlers.NewS3Handler(S3Service)
@@ -142,6 +151,16 @@ func main() {
 	// Rutas de personas
 	personas := api.Group("/personas")
 	personas.Get("/buscar", personHandler.GetPersonByDocumentNumber)
+
+	// Rutas de encuestas de satisfacción
+	surveys := api.Group("/encuestas")
+	surveys.Post("/", surveyHandler.CreateSurvey)                                // Crear encuesta con token
+	surveys.Get("/validar/:token", surveyHandler.ValidateToken)                  // Validar token
+	surveys.Get("/reserva/:reservationId", surveyHandler.GetSurveyByReservation) // Obtener por reserva
+	surveys.Get("/cliente/:clientId", surveyHandler.GetSurveysByClient)          // Obtener por cliente
+	surveys.Get("/all", surveyHandler.GetAllSurveys)                             // Obtener todas (con paginación)
+	surveys.Get("/promedios", surveyHandler.GetAverageScores)                    // Obtener promedios
+
 	// Rutas de S3
 	s3 := api.Group("/upload")
 	s3.Post("/imagenes", S3Handler.HandleUploadFile)
