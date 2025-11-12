@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/Maxito7/hotel_backend/internal/domain"
 )
@@ -39,15 +40,19 @@ func (r *clientRepository) GetClientIDByPersonID(personID int) (int, error) {
 }
 
 // Create crea un nuevo cliente
-func (r *clientRepository) Create(personID int) (int, error) {
+func (r *clientRepository) Create(personID int, captureChannel string, captureStatus string, travelsWithChildren int) (int, error) {
+	// Limpiar inputs
+	captureChannel = strings.TrimSpace(captureChannel)
+	captureStatus = strings.TrimSpace(captureStatus)
+
 	query := `
-		INSERT INTO client (person_id)
-		VALUES ($1)
+		INSERT INTO client (person_id, capture_channel, capture_status, travels_with_children)
+		VALUES ($1, $2, $3, $4)
 		RETURNING client_id
 	`
 
 	var clientID int
-	err := r.db.QueryRow(query, personID).Scan(&clientID)
+	err := r.db.QueryRow(query, personID, captureChannel, captureStatus, travelsWithChildren).Scan(&clientID)
 
 	if err != nil {
 		return 0, fmt.Errorf("error al crear cliente: %w", err)

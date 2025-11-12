@@ -27,7 +27,8 @@ type CreateReservaRequest struct {
 	Descuento       float64                   `json:"descuento"`
 	Cliente         ClienteData               `json:"cliente"`
 	Habitaciones    []CreateHabitacionReserva `json:"habitaciones"`
-	Pago            *PaymentData              `json:"pago,omitempty"` // Opcional
+	Servicios       []int                     `json:"servicios,omitempty"` // Array de IDs de servicios
+	Pago            *PaymentData              `json:"pago,omitempty"`      // Opcional
 }
 
 // PaymentData representa los datos del pago
@@ -128,6 +129,24 @@ func (h *ReservaHandler) CreateReserva(c *fiber.Ctx) error {
 		}
 	}
 
+	// Convertir servicios (si se enviaron)
+	var servicios []domain.ReservaServicio
+	if len(req.Servicios) > 0 {
+		// Usar las fechas de la primera habitación para los servicios
+		fechaEntrada := habitaciones[0].FechaEntrada
+		fechaSalida := habitaciones[0].FechaSalida
+
+		servicios = make([]domain.ReservaServicio, len(req.Servicios))
+		for i, servicioID := range req.Servicios {
+			servicios[i] = domain.ReservaServicio{
+				ServiceID: servicioID,
+				StartDate: fechaEntrada,
+				EndDate:   fechaSalida,
+				Status:    1, // Activo
+			}
+		}
+	}
+
 	// Crear el objeto Person con los datos del cliente
 	// Convertir el género del frontend (Masculino/Femenino/Otro) a BD (M/F/O)
 	person := &domain.Person{
@@ -146,14 +165,32 @@ func (h *ReservaHandler) CreateReserva(c *fiber.Ctx) error {
 		BirthDate:        birthDate,
 	}
 
+	// Calcular subtotal desde el amount del pago o desde habitaciones
+	subtotal := 0.0
+	if req.Pago != nil && req.Pago.Amount > 0 {
+		// Si hay pago, usar el amount como subtotal (ya incluye servicios)
+		subtotal = req.Pago.Amount
+	} else {
+		// Si no hay pago, calcular desde habitaciones (fallback)
+		for _, hab := range habitaciones {
+			dias := hab.FechaSalida.Sub(hab.FechaEntrada).Hours() / 24
+			if dias < 1 {
+				dias = 1
+			}
+			subtotal += hab.Precio * dias
+		}
+	}
+
 	// Crear la reserva con los datos del cliente
 	reserva := &domain.Reserva{
 		CantidadAdultos:   req.CantidadAdultos,
 		CantidadNinhos:    req.CantidadNinhos,
 		Descuento:         req.Descuento,
+		Subtotal:          subtotal,
 		Estado:            domain.ReservaPendiente,
 		FechaConfirmacion: time.Now(),
 		Habitaciones:      habitaciones,
+		Servicios:         servicios,
 	}
 
 	// Crear el pago si se proporcionó
