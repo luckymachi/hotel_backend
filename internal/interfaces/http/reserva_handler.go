@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
@@ -26,6 +27,7 @@ type CreateReservaRequest struct {
 	CantidadNinhos  int                       `json:"cantidadNinhos"`
 	Descuento       float64                   `json:"descuento"`
 	Cliente         ClienteData               `json:"cliente"`
+	Huespedes       []HuespedData             `json:"huespedes,omitempty"` // Huéspedes adicionales
 	Habitaciones    []CreateHabitacionReserva `json:"habitaciones"`
 	Servicios       []int                     `json:"servicios,omitempty"` // Array de IDs de servicios
 	Pago            *PaymentData              `json:"pago,omitempty"`      // Opcional
@@ -51,6 +53,18 @@ type ClienteData struct {
 	ReferenceCity    string  `json:"referenceCity"`
 	ReferenceCountry string  `json:"referenceCountry"`
 	BirthDate        string  `json:"birthDate"` // Formato: YYYY-MM-DD
+}
+
+// HuespedData representa los datos de un huésped adicional
+type HuespedData struct {
+	Name           string  `json:"name"`
+	FirstSurname   string  `json:"firstSurname"`
+	SecondSurname  *string `json:"secondSurname,omitempty"`
+	DocumentNumber string  `json:"documentNumber"`
+	Gender         string  `json:"gender"`    // M, F, O
+	Email          string  `json:"email"`     // Email del huésped
+	Phone1         string  `json:"phone1"`    // Teléfono del huésped
+	BirthDate      string  `json:"birthDate"` // Formato: YYYY-MM-DD
 }
 
 // CreateHabitacionReserva representa una habitación a reservar
@@ -204,8 +218,38 @@ func (h *ReservaHandler) CreateReserva(c *fiber.Ctx) error {
 		}
 	}
 
-	// Llamar al servicio para crear la reserva con el cliente y el pago
-	if err := h.service.CreateReservaWithClientAndPayment(person, reserva, payment); err != nil {
+	// Convertir huéspedes adicionales (si existen)
+	var huespedes []domain.Person
+	if len(req.Huespedes) > 0 {
+		huespedes = make([]domain.Person, len(req.Huespedes))
+		for i, h := range req.Huespedes {
+			hBirthDate, err := time.Parse("2006-01-02", h.BirthDate)
+			if err != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"error": fmt.Sprintf("Formato de birthDate inválido para huésped %d. Use YYYY-MM-DD", i+1),
+				})
+			}
+
+			huespedes[i] = domain.Person{
+				Name:             h.Name,
+				FirstSurname:     h.FirstSurname,
+				SecondSurname:    h.SecondSurname,
+				DocumentNumber:   h.DocumentNumber,
+				Gender:           h.Gender, // Ya viene en formato correcto: M, F, O
+				Email:            h.Email,  // Email del huésped
+				Phone1:           h.Phone1, // Teléfono del huésped
+				Phone2:           nil,
+				ReferenceCity:    "",
+				ReferenceCountry: "",
+				Active:           true,
+				CreationDate:     time.Now(),
+				BirthDate:        hBirthDate,
+			}
+		}
+	}
+
+	// Llamar al servicio para crear la reserva con el cliente, huéspedes y el pago
+	if err := h.service.CreateReservaWithClientAndPayment(person, reserva, huespedes, payment); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
 		})
