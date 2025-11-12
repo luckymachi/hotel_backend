@@ -24,76 +24,10 @@ profile.cov
 go.work
 go.work.sum
 
-# ========================================
-# 🔒 ARCHIVOS SENSIBLES - NO SUBIR A GIT
-# ========================================
-
-# Environment files - CONTIENEN CREDENCIALES
+# Environment files
 .env
 .env.*
-.env.local
-.env.development
-.env.production
-.env.test
-*.env
 
-# Archivos de configuración con credenciales
-config.json
-config.yaml
-config.yml
-secrets.json
-secrets.yaml
-secrets.yml
-
-# Archivos de base de datos
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs que pueden contener información sensible
-*.log
-logs/
-log/
-
-# Archivos temporales
-*.tmp
-*.temp
-*.swp
-*.swo
-*~
-
-# Backups
-*.bak
-*.backup
-
-# ========================================
 # Editor/IDE
-# ========================================
-.idea/
-.vscode/
-*.iml
-.DS_Store
-Thumbs.db
-
-# ========================================
-# Certificados y claves
-# ========================================
-*.pem
-*.key
-*.crt
-*.cer
-*.p12
-*.pfx
-ssl/
-certs/
-certificates/
-
-# ========================================
-# AWS y Cloud
-# ========================================
-.aws/
-credentials
-.terraform/
-*.tfstate
-*.tfstate.backup
-
+# .idea/
+# .vscode/
