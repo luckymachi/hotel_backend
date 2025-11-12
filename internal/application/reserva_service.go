@@ -15,6 +15,7 @@ type ReservaService struct {
 	personRepo            domain.PersonRepository
 	clientRepo            domain.ClientRepository
 	paymentRepo           domain.PaymentRepository
+	reservationGuestRepo  domain.ReservationGuestRepository
 	emailClient           *email.Client
 	surveyService         *SatisfactionSurveyService
 }
@@ -27,6 +28,7 @@ func NewReservaService(
 	personRepo domain.PersonRepository,
 	clientRepo domain.ClientRepository,
 	paymentRepo domain.PaymentRepository,
+	reservationGuestRepo domain.ReservationGuestRepository,
 	emailClient *email.Client,
 	surveyService *SatisfactionSurveyService,
 ) *ReservaService {
@@ -37,6 +39,7 @@ func NewReservaService(
 		personRepo:            personRepo,
 		clientRepo:            clientRepo,
 		paymentRepo:           paymentRepo,
+		reservationGuestRepo:  reservationGuestRepo,
 		emailClient:           emailClient,
 		surveyService:         surveyService,
 	}
@@ -157,8 +160,13 @@ func (s *ReservaService) CreateReservaWithClient(person *domain.Person, reserva 
 	return s.CreateReserva(reserva)
 }
 
-// CreateReservaWithClientAndPayment crea una reserva con cliente y pago
-func (s *ReservaService) CreateReservaWithClientAndPayment(person *domain.Person, reserva *domain.Reserva, payment *domain.Payment) error {
+// CreateReservaWithClientAndPayment crea una reserva con cliente, huéspedes adicionales y pago
+func (s *ReservaService) CreateReservaWithClientAndPayment(
+	person *domain.Person,
+	reserva *domain.Reserva,
+	huespedes []domain.Person,
+	payment *domain.Payment,
+) error {
 	// 1. Buscar persona por document_number
 	existingPerson, err := s.personRepo.FindByDocumentNumber(person.DocumentNumber)
 	if err != nil {
@@ -211,7 +219,51 @@ func (s *ReservaService) CreateReservaWithClientAndPayment(person *domain.Person
 		return err
 	}
 
-	// 6. Si se proporcionó pago, crearlo
+	// 6. Crear los huéspedes adicionales (si existen)
+	if len(huespedes) > 0 {
+		var personIDs []int
+
+		for i := range huespedes {
+			// Buscar si el huésped ya existe por document_number
+			existingGuest, err := s.personRepo.FindByDocumentNumber(huespedes[i].DocumentNumber)
+			if err != nil {
+				return fmt.Errorf("error al buscar huésped %d: %w", i+1, err)
+			}
+
+			var guestPersonID int
+
+			if existingGuest == nil {
+				// Si no existe, crear la persona
+				if err := s.personRepo.Create(&huespedes[i]); err != nil {
+					return fmt.Errorf("error al crear huésped %d: %w", i+1, err)
+				}
+				guestPersonID = huespedes[i].PersonID
+			} else {
+				// Si existe, actualizar sus datos con la información del JSON
+				existingGuest.Name = huespedes[i].Name
+				existingGuest.FirstSurname = huespedes[i].FirstSurname
+				existingGuest.SecondSurname = huespedes[i].SecondSurname
+				existingGuest.Gender = huespedes[i].Gender
+				existingGuest.Email = huespedes[i].Email   // ✅ Actualizar email
+				existingGuest.Phone1 = huespedes[i].Phone1 // ✅ Actualizar teléfono
+				existingGuest.BirthDate = huespedes[i].BirthDate
+
+				if err := s.personRepo.Update(existingGuest); err != nil {
+					return fmt.Errorf("error al actualizar huésped %d: %w", i+1, err)
+				}
+				guestPersonID = existingGuest.PersonID
+			}
+
+			personIDs = append(personIDs, guestPersonID)
+		}
+
+		// Crear las relaciones en reservation_guest
+		if err := s.reservationGuestRepo.CreateMultiple(reserva.ID, personIDs); err != nil {
+			return fmt.Errorf("reserva creada pero error al registrar huéspedes: %w", err)
+		}
+	}
+
+	// 7. Si se proporcionó pago, crearlo
 	if payment != nil {
 		payment.ReservationID = reserva.ID
 		if err := s.paymentRepo.Create(payment); err != nil {
@@ -221,7 +273,7 @@ func (s *ReservaService) CreateReservaWithClientAndPayment(person *domain.Person
 		}
 	}
 
-	// 7. Generar token de encuesta y enviar email (solo si surveyService está disponible)
+	// 8. Generar token de encuesta y enviar email (solo si surveyService está disponible)
 	if s.surveyService != nil {
 		s.generarYEnviarEncuesta(reserva.ID, clientID, person.Email)
 	}

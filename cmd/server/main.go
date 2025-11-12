@@ -94,6 +94,7 @@ func main() {
 	paymentRepo := repository.NewPaymentRepository(db)
 	reservaRepo := repository.NewReservaRepository(db)
 	reservaHabitacionRepo := repository.NewReservaHabitacionRepository(db)
+	reservationGuestRepo := repository.NewReservationGuestRepository(db)
 
 	// Encuestas de satisfacción (crear ANTES de ReservaService)
 	surveyRepo := repository.NewSatisfactionSurveyRepository(db)
@@ -102,7 +103,7 @@ func main() {
 	surveyHandler := handlers.NewSatisfactionSurveyHandler(surveyService)
 
 	// Reservas (servicio - ahora puede usar surveyService)
-	reservaService := application.NewReservaService(reservaRepo, reservaHabitacionRepo, habitacionRepo, personRepo, clientRepo, paymentRepo, emailClient, surveyService)
+	reservaService := application.NewReservaService(reservaRepo, reservaHabitacionRepo, habitacionRepo, personRepo, clientRepo, paymentRepo, reservationGuestRepo, emailClient, surveyService)
 	reservaHandler := handlers.NewReservaHandler(reservaService)
 
 	// S3
