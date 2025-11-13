@@ -3,9 +3,12 @@ package http
 import (
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Maxito7/hotel_backend/internal/application"
+	"github.com/Maxito7/hotel_backend/internal/domain"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -77,6 +80,248 @@ func (h *HabitacionHandler) GetRoomTypes(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(roomTypes)
+}
+
+// --- Admin endpoints for room types ---
+type roomTypeRequest struct {
+	Titulo           string             `json:"titulo"`
+	Descripcion      string             `json:"descripcion"`
+	CapacidadAdultos int                `json:"capacidadAdultos"`
+	CapacidadNinhos  int                `json:"capacidadNinhos"`
+	CantidadCamas    int                `json:"cantidadCamas"`
+	Area             float64            `json:"area"`
+	Precio           float64            `json:"precio"`
+	AmenityIDs       []int              `json:"amenity_ids,omitempty"`
+	Images           []domain.RoomImage `json:"images,omitempty"`
+}
+
+type roomRequest struct {
+	Nombre             string `json:"nombre"`
+	Numero             string `json:"numero"`
+	Capacidad          int    `json:"capacidad"`
+	Estado             string `json:"estado"`
+	DescripcionGeneral string `json:"descripcionGeneral"`
+	RoomTypeID         int    `json:"roomTypeId"`
+}
+
+func (h *HabitacionHandler) CreateRoomType(c *fiber.Ctx) error {
+	var req roomTypeRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
+	}
+
+	rt := domain.TipoHabitacion{
+		Titulo:           req.Titulo,
+		Descripcion:      req.Descripcion,
+		CapacidadAdultos: req.CapacidadAdultos,
+		CapacidadNinhos:  req.CapacidadNinhos,
+		CantidadCamas:    req.CantidadCamas,
+		Area:             req.Area,
+		Precio:           req.Precio,
+	}
+
+	newID, err := h.service.CreateRoomType(rt, req.AmenityIDs, req.Images)
+	if err != nil {
+		log.Printf("CreateRoomType error: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "error creating room type"})
+	}
+
+	created, err := h.service.GetRoomTypeByID(newID)
+	if err != nil {
+		return c.Status(fiber.StatusCreated).JSON(fiber.Map{"id": newID})
+	}
+	return c.Status(fiber.StatusCreated).JSON(created)
+}
+
+func (h *HabitacionHandler) UpdateRoomType(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+
+	var req roomTypeRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
+	}
+
+	rt := domain.TipoHabitacion{
+		Titulo:           req.Titulo,
+		Descripcion:      req.Descripcion,
+		CapacidadAdultos: req.CapacidadAdultos,
+		CapacidadNinhos:  req.CapacidadNinhos,
+		CantidadCamas:    req.CantidadCamas,
+		Area:             req.Area,
+		Precio:           req.Precio,
+	}
+
+	if err := h.service.UpdateRoomType(id, rt, req.AmenityIDs, req.Images); err != nil {
+		log.Printf("UpdateRoomType error: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "error updating room type"})
+	}
+
+	updated, err := h.service.GetRoomTypeByID(id)
+	if err != nil {
+		return c.SendStatus(fiber.StatusNoContent)
+	}
+	return c.JSON(updated)
+}
+
+func (h *HabitacionHandler) DeleteRoomType(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+	if err := h.service.DeleteRoomType(id); err != nil {
+		log.Printf("DeleteRoomType error: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "error deleting room type"})
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *HabitacionHandler) GetRoomTypeByID(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+	rt, err := h.service.GetRoomTypeByID(id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "room type not found"})
+	}
+	return c.JSON(rt)
+}
+
+func (h *HabitacionHandler) CreateRoom(c *fiber.Ctx) error {
+	var req roomRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
+	}
+
+	room := domain.Habitacion{
+		Nombre:             req.Nombre,
+		Numero:             req.Numero,
+		Capacidad:          req.Capacidad,
+		Estado:             req.Estado,
+		DescripcionGeneral: req.DescripcionGeneral,
+		TipoHabitacion:     domain.TipoHabitacion{ID: req.RoomTypeID},
+	}
+
+	newID, err := h.service.CreateRoom(room)
+	if err != nil {
+		log.Printf("CreateRoom error: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "error creating room"})
+	}
+
+	created, err := h.service.GetRoomByID(newID)
+	if err != nil {
+		return c.Status(fiber.StatusCreated).JSON(fiber.Map{"id": newID})
+	}
+	return c.Status(fiber.StatusCreated).JSON(created)
+}
+
+func (h *HabitacionHandler) UpdateRoom(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+	var req roomRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
+	}
+
+	room := domain.Habitacion{
+		Nombre:             req.Nombre,
+		Numero:             req.Numero,
+		Capacidad:          req.Capacidad,
+		Estado:             req.Estado,
+		DescripcionGeneral: req.DescripcionGeneral,
+		TipoHabitacion:     domain.TipoHabitacion{ID: req.RoomTypeID},
+	}
+
+	if err := h.service.UpdateRoom(id, room); err != nil {
+		log.Printf("UpdateRoom error: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "error updating room"})
+	}
+
+	updated, err := h.service.GetRoomByID(id)
+	if err != nil {
+		return c.SendStatus(fiber.StatusNoContent)
+	}
+	return c.JSON(updated)
+}
+
+func (h *HabitacionHandler) DeleteRoom(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+	if err := h.service.DeleteRoom(id); err != nil {
+		log.Printf("DeleteRoom error: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "error deleting room"})
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *HabitacionHandler) GetRoomByID(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+	room, err := h.service.GetRoomByID(id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "room not found"})
+	}
+	return c.JSON(room)
+}
+
+func (h *HabitacionHandler) SetRoomTypeAmenities(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+	var payload struct {
+		AmenityIDs []int `json:"amenity_ids"`
+	}
+	if err := c.BodyParser(&payload); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
+	}
+	if err := h.service.SetAmenitiesForRoomType(id, payload.AmenityIDs); err != nil {
+		log.Printf("SetRoomTypeAmenities error: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "error setting amenities"})
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// UpdateRoomTypeImages reemplaza las imágenes de un tipo de habitación (solo imágenes)
+func (h *HabitacionHandler) UpdateRoomTypeImages(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+
+	var payload struct {
+		Images []domain.RoomImage `json:"images"`
+	}
+	if err := c.BodyParser(&payload); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
+	}
+
+	if err := h.service.SetImagesForRoomType(id, payload.Images); err != nil {
+		log.Printf("UpdateRoomTypeImages error: %v", err)
+		// Distinguish validation errors
+		if strings.HasPrefix(err.Error(), "validation:") {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": strings.TrimPrefix(err.Error(), "validation: ")})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "error updating images"})
+	}
+	return c.SendStatus(fiber.StatusNoContent)
 }
 
 func (h *HabitacionHandler) GetFechasBloqueadas(c *fiber.Ctx) error {
@@ -182,4 +427,14 @@ func (h *HabitacionHandler) GetAvailableRooms(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(habitaciones)
+}
+
+// ListAmenities returns all amenities (public)
+func (h *HabitacionHandler) ListAmenities(c *fiber.Ctx) error {
+	amenities, err := h.service.ListAmenities()
+	if err != nil {
+		log.Printf("Error listing amenities: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "error fetching amenities"})
+	}
+	return c.JSON(amenities)
 }

@@ -14,6 +14,8 @@ type TipoHabitacion struct {
 	Area             float64 `json:"area"`
 	// Amenities related to this room type
 	Amenities []Amenity `json:"amenities,omitempty"`
+	// Images related to this room type
+	Images []RoomImage `json:"images,omitempty"`
 }
 
 // Amenity represents an amenity that can be assigned to a room type
@@ -21,6 +23,16 @@ type Amenity struct {
 	ID          int    `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+// RoomImage representa una imagen asociada a un tipo de habitación
+type RoomImage struct {
+	ID        int    `json:"id"`
+	URL       string `json:"url"`
+	AltText   string `json:"altText,omitempty"`
+	IsPrimary bool   `json:"isPrimary"`
+	SortOrder int    `json:"sortOrder"`
+	IsActive  bool   `json:"isActive"`
 }
 
 // Habitacion represents a room in the hotel with its type information
@@ -59,4 +71,20 @@ type HabitacionRepository interface {
 	GetDisponibilidadFechas(desde time.Time, hasta time.Time) ([]DisponibilidadFecha, error)
 	// GetRoomTypes returns all room types in the system
 	GetRoomTypes() ([]TipoHabitacion, error)
+	// CRUD for room types
+	CreateRoomType(rt TipoHabitacion, amenityIDs []int, images []RoomImage) (int, error)
+	UpdateRoomType(id int, rt TipoHabitacion, amenityIDs []int, images []RoomImage) error
+	DeleteRoomType(id int) error
+	GetRoomTypeByID(id int) (TipoHabitacion, error)
+
+	// CRUD for individual rooms
+	CreateRoom(h Habitacion) (int, error)
+	UpdateRoom(id int, h Habitacion) error
+	DeleteRoom(id int) error
+	GetRoomByID(id int) (Habitacion, error)
+	// Helpers to set relations
+	SetAmenitiesForRoomType(roomTypeID int, amenityIDs []int) error
+	SetImagesForRoomType(roomTypeID int, images []RoomImage) error
+	// ListAmenities returns all available amenities
+	ListAmenities() ([]Amenity, error)
 }
