@@ -11,6 +11,16 @@ type TipoHabitacion struct {
 	CapacidadNinhos  int     `json:"capacidadNinhos"`
 	CantidadCamas    int     `json:"cantidadCamas"`
 	Precio           float64 `json:"precio"`
+	Area             float64 `json:"area"`
+	// Amenities related to this room type
+	Amenities []Amenity `json:"amenities,omitempty"`
+}
+
+// Amenity represents an amenity that can be assigned to a room type
+type Amenity struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // Habitacion represents a room in the hotel with its type information

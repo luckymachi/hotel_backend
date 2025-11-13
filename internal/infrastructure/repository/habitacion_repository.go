@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Maxito7/hotel_backend/internal/domain"
@@ -35,6 +36,7 @@ func (r *habitacionRepository) GetAllRooms() ([]domain.Habitacion, error) {
 			t.adult_capacity,
 			t.children_capacity,
 			t.beds_count,
+			t.area,
 			t.price
 		FROM 
 			room h
@@ -65,6 +67,7 @@ func (r *habitacionRepository) GetAllRooms() ([]domain.Habitacion, error) {
 			&h.TipoHabitacion.CapacidadAdultos,
 			&h.TipoHabitacion.CapacidadNinhos,
 			&h.TipoHabitacion.CantidadCamas,
+			&h.TipoHabitacion.Area,
 			&h.TipoHabitacion.Precio,
 		)
 		if err != nil {
@@ -75,6 +78,28 @@ func (r *habitacionRepository) GetAllRooms() ([]domain.Habitacion, error) {
 
 	if err = rows.Err(); err != nil {
 		return nil, err
+	}
+
+	// Attach amenities for room types
+	// Collect unique room_type IDs
+	typeIDsMap := make(map[int]struct{})
+	var typeIDs []int
+	for _, h := range habitaciones {
+		if _, ok := typeIDsMap[h.TipoHabitacion.ID]; !ok {
+			typeIDsMap[h.TipoHabitacion.ID] = struct{}{}
+			typeIDs = append(typeIDs, h.TipoHabitacion.ID)
+		}
+	}
+
+	amenitiesMap, err := r.getAmenitiesForRoomTypeIDs(typeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching amenities: %w", err)
+	}
+
+	for i := range habitaciones {
+		if a, ok := amenitiesMap[habitaciones[i].TipoHabitacion.ID]; ok {
+			habitaciones[i].TipoHabitacion.Amenities = a
+		}
 	}
 
 	return habitaciones, nil
@@ -213,6 +238,7 @@ func (r *habitacionRepository) GetAvailableRooms(fechaEntrada, fechaSalida time.
 			t.adult_capacity,
 			t.children_capacity,
 			t.beds_count,
+			t.area,
 			t.price
 		FROM 
 			room h
@@ -257,6 +283,7 @@ func (r *habitacionRepository) GetAvailableRooms(fechaEntrada, fechaSalida time.
 			&h.TipoHabitacion.CapacidadAdultos,
 			&h.TipoHabitacion.CapacidadNinhos,
 			&h.TipoHabitacion.CantidadCamas,
+			&h.TipoHabitacion.Area,
 			&h.TipoHabitacion.Precio,
 		)
 		if err != nil {
@@ -267,6 +294,27 @@ func (r *habitacionRepository) GetAvailableRooms(fechaEntrada, fechaSalida time.
 
 	if err = rows.Err(); err != nil {
 		return nil, err
+	}
+
+	// Attach amenities for room types similar to GetAllRooms
+	typeIDsMap := make(map[int]struct{})
+	var typeIDs []int
+	for _, h := range habitaciones {
+		if _, ok := typeIDsMap[h.TipoHabitacion.ID]; !ok {
+			typeIDsMap[h.TipoHabitacion.ID] = struct{}{}
+			typeIDs = append(typeIDs, h.TipoHabitacion.ID)
+		}
+	}
+
+	amenitiesMap, err := r.getAmenitiesForRoomTypeIDs(typeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching amenities: %w", err)
+	}
+
+	for i := range habitaciones {
+		if a, ok := amenitiesMap[habitaciones[i].TipoHabitacion.ID]; ok {
+			habitaciones[i].TipoHabitacion.Amenities = a
+		}
 	}
 
 	return habitaciones, nil
@@ -282,6 +330,7 @@ func (r *habitacionRepository) GetRoomTypes() ([]domain.TipoHabitacion, error) {
 			adult_capacity,
 			children_capacity,
 			beds_count,
+			area,
 			price
 		FROM 
 			room_type
@@ -304,6 +353,7 @@ func (r *habitacionRepository) GetRoomTypes() ([]domain.TipoHabitacion, error) {
 			&rt.CapacidadAdultos,
 			&rt.CapacidadNinhos,
 			&rt.CantidadCamas,
+			&rt.Area,
 			&rt.Precio,
 		)
 		if err != nil {
@@ -316,5 +366,65 @@ func (r *habitacionRepository) GetRoomTypes() ([]domain.TipoHabitacion, error) {
 		return nil, fmt.Errorf("error iterating room types rows: %w", err)
 	}
 
+	// Attach amenities to room types
+	var typeIDs []int
+	for _, rt := range roomTypes {
+		typeIDs = append(typeIDs, rt.ID)
+	}
+
+	amenitiesMap, err := r.getAmenitiesForRoomTypeIDs(typeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching amenities for room types: %w", err)
+	}
+
+	for i := range roomTypes {
+		if a, ok := amenitiesMap[roomTypes[i].ID]; ok {
+			roomTypes[i].Amenities = a
+		}
+	}
+
 	return roomTypes, nil
+}
+
+// getAmenitiesForRoomTypeIDs fetches amenities for the provided room_type IDs
+func (r *habitacionRepository) getAmenitiesForRoomTypeIDs(ids []int) (map[int][]domain.Amenity, error) {
+	result := make(map[int][]domain.Amenity)
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	// Build placeholders and args for IN clause
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT rta.room_type_id, a.id, a.name, a.description
+		FROM room_type_amenities rta
+		JOIN amenities a ON rta.amenity_id = a.id
+		WHERE rta.room_type_id IN (%s);`, strings.Join(placeholders, ","))
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("error querying amenities: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var roomTypeID int
+		var a domain.Amenity
+		if err := rows.Scan(&roomTypeID, &a.ID, &a.Name, &a.Description); err != nil {
+			return nil, fmt.Errorf("error scanning amenity row: %w", err)
+		}
+		result[roomTypeID] = append(result[roomTypeID], a)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating amenity rows: %w", err)
+	}
+
+	return result, nil
 }
