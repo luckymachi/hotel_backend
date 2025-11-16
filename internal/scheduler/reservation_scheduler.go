@@ -19,19 +19,12 @@ func NewReservationScheduler(reservaRepo domain.ReservaRepository) *ReservationS
 	}
 }
 
-// Start inicia el scheduler que actualiza reservas expiradas cada 24 horas
+// Start inicia el scheduler que actualiza reservas expiradas cada 24 horas a las 00:01 AM
 func (s *ReservationScheduler) Start() {
-	log.Println("🕐 Scheduler de reservas iniciado - Se ejecutará cada 24 horas")
-
-	// Ejecutar inmediatamente al iniciar
-	s.UpdateCompletedReservations()
-
 	// Programar ejecución cada 24 horas a las 00:01 AM
 	now := time.Now()
 	nextRun := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 1, 0, 0, now.Location())
 	durationUntilNextRun := time.Until(nextRun)
-
-	log.Printf("⏰ Próxima ejecución programada: %s", nextRun.Format("2006-01-02 15:04:05"))
 
 	// Esperar hasta la próxima ejecución
 	time.AfterFunc(durationUntilNextRun, func() {

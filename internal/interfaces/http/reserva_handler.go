@@ -120,6 +120,13 @@ func (h *ReservaHandler) CreateReserva(c *fiber.Ctx) error {
 	// Convertir habitaciones y buscar habitación disponible de cada tipo
 	habitaciones := make([]domain.ReservaHabitacion, len(req.Habitaciones))
 	for i, hab := range req.Habitaciones {
+		// Validar que roomTypeId sea válido
+		if hab.RoomTypeID <= 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("roomTypeId inválido en habitación %d. Debe ser mayor a 0. Valor recibido: %d", i+1, hab.RoomTypeID),
+			})
+		}
+
 		fechaEntrada, err := time.Parse("2006-01-02", hab.FechaEntrada)
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
