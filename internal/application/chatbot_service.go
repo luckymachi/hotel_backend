@@ -339,22 +339,17 @@ func (s *ChatbotService) getHotelInfo(req domain.ChatRequest) (string, error) {
 		if err == nil {
 			fechaSalida, err := time.Parse("2006-01-02", *req.Context.FechaSalida)
 			if err == nil {
-				habitacionesDisponibles, err := s.habitacionRepo.GetAvailableRooms(fechaEntrada, fechaSalida)
+				tiposDisponibles, err := s.habitacionRepo.GetAvailableRooms(fechaEntrada, fechaSalida)
 				if err == nil {
 					info.WriteString(fmt.Sprintf("\n\nDISPONIBILIDAD PARA %s - %s:\n",
 						*req.Context.FechaEntrada, *req.Context.FechaSalida))
 
-					// Agrupar habitaciones disponibles por tipo
-					disponiblesPorTipo := make(map[string]int)
-					for _, hab := range habitacionesDisponibles {
-						disponiblesPorTipo[hab.TipoHabitacion.Titulo]++
-					}
-
-					if len(disponiblesPorTipo) == 0 {
+					if len(tiposDisponibles) == 0 {
 						info.WriteString("❌ No hay habitaciones disponibles para estas fechas.\n")
 					} else {
-						for tipo, cantidad := range disponiblesPorTipo {
-							info.WriteString(fmt.Sprintf("✅ %s: %d habitaciones disponibles\n", tipo, cantidad))
+						for _, tipo := range tiposDisponibles {
+							info.WriteString(fmt.Sprintf("✅ %s: Disponible (Precio: $%.2f, Capacidad: %d adultos + %d niños)\n",
+								tipo.Titulo, tipo.Precio, tipo.CapacidadAdultos, tipo.CapacidadNinhos))
 						}
 					}
 				}

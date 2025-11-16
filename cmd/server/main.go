@@ -10,6 +10,7 @@ import (
 	"github.com/Maxito7/hotel_backend/internal/infrastructure/repository"
 	handlers "github.com/Maxito7/hotel_backend/internal/interfaces/http"
 	"github.com/Maxito7/hotel_backend/internal/openai"
+	"github.com/Maxito7/hotel_backend/internal/scheduler"
 	services "github.com/Maxito7/hotel_backend/internal/service"
 	"github.com/Maxito7/hotel_backend/internal/tavily"
 	"github.com/gofiber/fiber/v2"
@@ -106,6 +107,10 @@ func main() {
 	reservaService := application.NewReservaService(reservaRepo, reservaHabitacionRepo, habitacionRepo, personRepo, clientRepo, paymentRepo, reservationGuestRepo, emailClient, surveyService)
 	reservaHandler := handlers.NewReservaHandler(reservaService)
 
+	// Scheduler para actualizar reservas completadas automáticamente
+	reservationScheduler := scheduler.NewReservationScheduler(reservaRepo)
+	reservationScheduler.Start()
+
 	// S3
 	S3Service, err := services.NewS3Service()
 	S3Handler := handlers.NewS3Handler(S3Service)
@@ -115,9 +120,28 @@ func main() {
 	// Rutas existentes
 	habitaciones := api.Group("/habitaciones")
 	habitaciones.Get("/", habitacionHandler.GetAllRooms)
+	habitaciones.Post("/", habitacionHandler.CreateRoom)
 	habitaciones.Get("/tipos", habitacionHandler.GetRoomTypes)
 	habitaciones.Get("/disponibles", habitacionHandler.GetAvailableRooms)
 	habitaciones.Get("/fechas-bloqueadas", habitacionHandler.GetFechasBloqueadas)
+
+	// Public amenities list
+	api.Get("/amenities", habitacionHandler.ListAmenities)
+
+	// Admin routes for room types
+	habitaciones.Post("/tipos", habitacionHandler.CreateRoomType)
+	habitaciones.Get("/tipos/:id", habitacionHandler.GetRoomTypeByID)
+	habitaciones.Put("/tipos/:id", habitacionHandler.UpdateRoomType)
+	habitaciones.Put("/tipos/:id/images", habitacionHandler.UpdateRoomTypeImages)
+	habitaciones.Delete("/tipos/:id", habitacionHandler.DeleteRoomType)
+	habitaciones.Put("/tipos/:id/amenities", habitacionHandler.SetRoomTypeAmenities)
+
+	// Room item routes
+	habitaciones.Get("/:id", habitacionHandler.GetRoomByID)
+	habitaciones.Put("/:id", habitacionHandler.UpdateRoom)
+	habitaciones.Delete("/:id", habitacionHandler.DeleteRoom)
+
+	// duplicate earlier listing route (kept)
 	habitaciones.Get("/tipos", habitacionHandler.GetRoomTypes)
 
 	api.Post("/search", searchHandler.Search)

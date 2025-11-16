@@ -69,7 +69,7 @@ type HuespedData struct {
 
 // CreateHabitacionReserva representa una habitación a reservar
 type CreateHabitacionReserva struct {
-	HabitacionID int     `json:"habitacionId"`
+	RoomTypeID   int     `json:"roomTypeId"` // ID del tipo de habitación
 	Precio       float64 `json:"precio"`
 	FechaEntrada string  `json:"fechaEntrada"` // Formato: YYYY-MM-DD
 	FechaSalida  string  `json:"fechaSalida"`  // Formato: YYYY-MM-DD
@@ -117,9 +117,16 @@ func (h *ReservaHandler) CreateReserva(c *fiber.Ctx) error {
 		})
 	}
 
-	// Convertir habitaciones
+	// Convertir habitaciones y buscar habitación disponible de cada tipo
 	habitaciones := make([]domain.ReservaHabitacion, len(req.Habitaciones))
 	for i, hab := range req.Habitaciones {
+		// Validar que roomTypeId sea válido
+		if hab.RoomTypeID <= 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("roomTypeId inválido en habitación %d. Debe ser mayor a 0. Valor recibido: %d", i+1, hab.RoomTypeID),
+			})
+		}
+
 		fechaEntrada, err := time.Parse("2006-01-02", hab.FechaEntrada)
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -134,8 +141,16 @@ func (h *ReservaHandler) CreateReserva(c *fiber.Ctx) error {
 			})
 		}
 
+		// Buscar una habitación disponible del tipo especificado
+		habitacionID, err := h.service.FindAvailableRoomByType(hab.RoomTypeID, fechaEntrada, fechaSalida)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("No hay habitaciones disponibles del tipo %d para las fechas seleccionadas: %v", hab.RoomTypeID, err),
+			})
+		}
+
 		habitaciones[i] = domain.ReservaHabitacion{
-			HabitacionID: hab.HabitacionID,
+			HabitacionID: habitacionID,
 			Precio:       hab.Precio,
 			FechaEntrada: fechaEntrada,
 			FechaSalida:  fechaSalida,
