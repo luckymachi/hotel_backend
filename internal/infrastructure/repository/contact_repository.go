@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"github.com/Maxito7/hotel_backend/internal/domain"
 )
@@ -22,17 +23,44 @@ func NewContactRepository(db *sql.DB) ContactRepository {
 }
 
 func (r *contactRepository) Create(ctx context.Context, req domain.CreateContactRequest) (int64, error) {
-	query := `
-    INSERT INTO contact_form (name, email, phone, message, status)
-    VALUES ($1, $2, $3, $4, 'Nuevo')
-    RETURNING form_id
-`
+	// Primero, verificar si ya existe un lead con este email
+	var existingLeadID int64
+	err := r.db.QueryRowContext(ctx, `SELECT lead_id FROM lead WHERE email=$1 LIMIT 1`, req.Email).Scan(&existingLeadID)
+	if err == nil {
+		// Si ya existe, devolver error y no insertar
+		return 0, fmt.Errorf("El correo ya se encuentra registrado")
+	} else if err != sql.ErrNoRows {
+		// Error inesperado al consultar lead
+		return 0, err
+	}
 
+	// No existe lead: insertar el contact_form
+	insertQuery := `
+	INSERT INTO contact_form (name, email, phone, message, status)
+	VALUES ($1, $2, $3, $4, 'Nuevo')
+	RETURNING form_id
+`
 	var id int64
-	err := r.db.QueryRowContext(ctx, query,
+	err = r.db.QueryRowContext(ctx, insertQuery,
 		req.Nombre, req.Email, req.Telefono, req.Mensaje,
 	).Scan(&id)
-	return id, err
+	if err != nil {
+		return 0, err
+	}
+
+	// Después de insertar, intentar asociar lead_id por si se creó posteriormente
+	var leadID int64
+	err = r.db.QueryRowContext(ctx, `SELECT lead_id FROM lead WHERE email=$1 LIMIT 1`, req.Email).Scan(&leadID)
+	if err == nil {
+		_, updErr := r.db.ExecContext(ctx, `UPDATE contact_form SET lead_id=$1 WHERE form_id=$2`, leadID, id)
+		if updErr != nil {
+			return id, updErr
+		}
+	} else if err != sql.ErrNoRows {
+		return id, err
+	}
+
+	return id, nil
 }
 
 func (r *contactRepository) List(ctx context.Context) ([]domain.Contact, error) {
