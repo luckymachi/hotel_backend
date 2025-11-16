@@ -3,9 +3,11 @@ package http
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/Maxito7/hotel_backend/internal/application"
+	"github.com/Maxito7/hotel_backend/internal/domain"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -136,10 +138,18 @@ func (h *HabitacionHandler) GetAvailableRooms(c *fiber.Ctx) error {
 	// Parse query parameters
 	fechaEntradaStr := c.Query("fechaEntrada")
 	fechaSalidaStr := c.Query("fechaSalida")
+	capacidadAdultosStr := c.Query("capacidadAdultos")
+	capacidadNinhosStr := c.Query("capacidadNinhos")
 
 	if fechaEntradaStr == "" || fechaSalidaStr == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "fechaEntrada and fechaSalida are required",
+		})
+	}
+
+	if capacidadAdultosStr == "" || capacidadNinhosStr == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "capacidadAdultos and capacidadNinhos are required",
 		})
 	}
 
@@ -155,6 +165,21 @@ func (h *HabitacionHandler) GetAvailableRooms(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid fechaSalida format. Use YYYY-MM-DD",
+		})
+	}
+
+	// Parse capacity parameters
+	capacidadAdultos, err := strconv.Atoi(capacidadAdultosStr)
+	if err != nil || capacidadAdultos < 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid capacidadAdultos. Must be a non-negative integer",
+		})
+	}
+
+	capacidadNinhos, err := strconv.Atoi(capacidadNinhosStr)
+	if err != nil || capacidadNinhos < 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid capacidadNinhos. Must be a non-negative integer",
 		})
 	}
 
@@ -181,5 +206,14 @@ func (h *HabitacionHandler) GetAvailableRooms(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(habitaciones)
+	// Filter rooms by capacity
+	habitacionesFiltradas := make([]domain.Habitacion, 0)
+	for _, habitacion := range habitaciones {
+		if habitacion.TipoHabitacion.CapacidadAdultos >= capacidadAdultos &&
+			habitacion.TipoHabitacion.CapacidadNinhos >= capacidadNinhos {
+			habitacionesFiltradas = append(habitacionesFiltradas, habitacion)
+		}
+	}
+
+	return c.JSON(habitacionesFiltradas)
 }
