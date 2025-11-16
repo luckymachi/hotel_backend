@@ -22,7 +22,7 @@ func (s *HabitacionService) GetAllRooms() ([]domain.Habitacion, error) {
 	return s.repo.GetAllRooms()
 }
 
-func (s *HabitacionService) GetAvailableRooms(fechaEntrada, fechaSalida time.Time) ([]domain.Habitacion, error) {
+func (s *HabitacionService) GetAvailableRooms(fechaEntrada, fechaSalida time.Time) ([]domain.TipoHabitacion, error) {
 	return s.repo.GetAvailableRooms(fechaEntrada, fechaSalida)
 }
 

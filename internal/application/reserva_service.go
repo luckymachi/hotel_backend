@@ -123,6 +123,11 @@ func (s *ReservaService) CreateReserva(reserva *domain.Reserva) error {
 	return nil
 }
 
+// FindAvailableRoomByType busca una habitación disponible de un tipo específico para las fechas dadas
+func (s *ReservaService) FindAvailableRoomByType(roomTypeID int, fechaEntrada, fechaSalida time.Time) (int, error) {
+	return s.habitacionRepo.FindAvailableRoomByType(roomTypeID, fechaEntrada, fechaSalida)
+}
+
 // CreateReservaWithClient crea una reserva buscando/creando primero el cliente
 func (s *ReservaService) CreateReservaWithClient(person *domain.Person, reserva *domain.Reserva) error {
 	// 1. Buscar persona por document_number

@@ -48,4 +48,6 @@ type ReservaRepository interface {
 	GetReservasCliente(clienteID int) ([]Reserva, error)
 	// CreateReservaServicios crea los servicios asociados a una reserva
 	CreateReservaServicios(reservaID int, servicios []ReservaServicio) error
+	// UpdateExpiredReservations actualiza reservas confirmadas a completadas cuando la fecha de checkout ha pasado
+	UpdateExpiredReservations() error
 }

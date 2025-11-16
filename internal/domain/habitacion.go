@@ -63,8 +63,10 @@ type DisponibilidadFecha struct {
 type HabitacionRepository interface {
 	// GetAllRooms returns all rooms in the system
 	GetAllRooms() ([]Habitacion, error)
-	// GetAvailableRooms returns rooms that are available for the given date range
-	GetAvailableRooms(fechaEntrada, fechaSalida time.Time) ([]Habitacion, error)
+	// GetAvailableRooms returns room types that are available for the given date range
+	GetAvailableRooms(fechaEntrada, fechaSalida time.Time) ([]TipoHabitacion, error)
+	// FindAvailableRoomByType finds an available room of a specific type for the given date range
+	FindAvailableRoomByType(roomTypeID int, fechaEntrada, fechaSalida time.Time) (int, error)
 	// GetFechasBloqueadas returns dates where there are no rooms available
 	GetFechasBloqueadas(desde time.Time, hasta time.Time) (*FechasBloqueadas, error)
 	// GetDisponibilidadFechas returns the availability status for each date in the given range

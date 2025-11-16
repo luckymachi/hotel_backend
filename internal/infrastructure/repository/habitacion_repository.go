@@ -223,15 +223,9 @@ func (r *habitacionRepository) GetFechasBloqueadas(desde, hasta time.Time) (*dom
 }
 
 // GetAvailableRooms implements domain.HabitacionRepository
-func (r *habitacionRepository) GetAvailableRooms(fechaEntrada, fechaSalida time.Time) ([]domain.Habitacion, error) {
+func (r *habitacionRepository) GetAvailableRooms(fechaEntrada, fechaSalida time.Time) ([]domain.TipoHabitacion, error) {
 	query := `
-		SELECT DISTINCT 
-			h.room_id,
-			h.name,
-			h.number,
-			h.capacity,
-			h.status,
-			h.general_description,
+		SELECT DISTINCT
 			t.room_type_id,
 			t.title,
 			t.description,
@@ -241,11 +235,11 @@ func (r *habitacionRepository) GetAvailableRooms(fechaEntrada, fechaSalida time.
 			t.area,
 			t.price
 		FROM 
-			room h
-		INNER JOIN 
-			room_type t ON h.room_type_id = t.room_type_id
-		WHERE 
-			h.status = 'Disponible'
+			room_type t
+		WHERE EXISTS (
+			SELECT 1 FROM room h
+			WHERE h.room_type_id = t.room_type_id
+			AND h.status = 'Disponible'
 			AND NOT EXISTS (
 				SELECT 1 FROM reservation_room rh
 				JOIN reservation r ON r.reservation_id = rh.reservation_id
@@ -258,8 +252,9 @@ func (r *habitacionRepository) GetAvailableRooms(fechaEntrada, fechaSalida time.
 					OR (rh.check_in_date >= $1 AND rh.check_out_date <= $2)
 				)
 			)
+		)
 		ORDER BY 
-			h.room_id;`
+			t.room_type_id;`
 
 	rows, err := r.db.Query(query, fechaEntrada, fechaSalida)
 	if err != nil {
@@ -267,57 +262,87 @@ func (r *habitacionRepository) GetAvailableRooms(fechaEntrada, fechaSalida time.
 	}
 	defer rows.Close()
 
-	var habitaciones []domain.Habitacion
+	var roomTypes []domain.TipoHabitacion
 	for rows.Next() {
-		var h domain.Habitacion
+		var rt domain.TipoHabitacion
 		err := rows.Scan(
-			&h.ID,
-			&h.Nombre,
-			&h.Numero,
-			&h.Capacidad,
-			&h.Estado,
-			&h.DescripcionGeneral,
-			&h.TipoHabitacion.ID,
-			&h.TipoHabitacion.Titulo,
-			&h.TipoHabitacion.Descripcion,
-			&h.TipoHabitacion.CapacidadAdultos,
-			&h.TipoHabitacion.CapacidadNinhos,
-			&h.TipoHabitacion.CantidadCamas,
-			&h.TipoHabitacion.Area,
-			&h.TipoHabitacion.Precio,
+			&rt.ID,
+			&rt.Titulo,
+			&rt.Descripcion,
+			&rt.CapacidadAdultos,
+			&rt.CapacidadNinhos,
+			&rt.CantidadCamas,
+			&rt.Area,
+			&rt.Precio,
 		)
 		if err != nil {
 			return nil, err
 		}
-		habitaciones = append(habitaciones, h)
+		roomTypes = append(roomTypes, rt)
 	}
 
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
 
-	// Attach amenities for room types similar to GetAllRooms
-	typeIDsMap := make(map[int]struct{})
+	// Collect room type IDs
 	var typeIDs []int
-	for _, h := range habitaciones {
-		if _, ok := typeIDsMap[h.TipoHabitacion.ID]; !ok {
-			typeIDsMap[h.TipoHabitacion.ID] = struct{}{}
-			typeIDs = append(typeIDs, h.TipoHabitacion.ID)
-		}
+	for _, rt := range roomTypes {
+		typeIDs = append(typeIDs, rt.ID)
 	}
 
+	// Attach amenities and images for room types
 	amenitiesMap, err := r.getAmenitiesForRoomTypeIDs(typeIDs)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching amenities: %w", err)
 	}
 
-	for i := range habitaciones {
-		if a, ok := amenitiesMap[habitaciones[i].TipoHabitacion.ID]; ok {
-			habitaciones[i].TipoHabitacion.Amenities = a
+	imagesMap, err := r.getImagesForRoomTypeIDs(typeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching images: %w", err)
+	}
+
+	for i := range roomTypes {
+		if a, ok := amenitiesMap[roomTypes[i].ID]; ok {
+			roomTypes[i].Amenities = a
+		}
+		if imgs, ok := imagesMap[roomTypes[i].ID]; ok {
+			roomTypes[i].Images = imgs
 		}
 	}
 
-	return habitaciones, nil
+	return roomTypes, nil
+}
+
+// FindAvailableRoomByType implements domain.HabitacionRepository
+func (r *habitacionRepository) FindAvailableRoomByType(roomTypeID int, fechaEntrada, fechaSalida time.Time) (int, error) {
+	query := `
+		SELECT h.room_id
+		FROM room h
+		WHERE h.room_type_id = $1
+		AND h.status = 'Disponible'
+		AND NOT EXISTS (
+			SELECT 1 FROM reservation_room rh
+			JOIN reservation r ON r.reservation_id = rh.reservation_id
+			WHERE rh.room_id = h.room_id
+			AND rh.status = 1
+			AND r.status = 'Confirmada'
+			AND (
+				(rh.check_in_date <= $2 AND rh.check_out_date >= $2)
+				OR (rh.check_in_date <= $3 AND rh.check_out_date >= $3)
+				OR (rh.check_in_date >= $2 AND rh.check_out_date <= $3)
+			)
+		)
+		ORDER BY h.room_id
+		LIMIT 1;`
+
+	var roomID int
+	err := r.db.QueryRow(query, roomTypeID, fechaEntrada, fechaSalida).Scan(&roomID)
+	if err != nil {
+		return 0, fmt.Errorf("no se encontró habitación disponible del tipo %d: %w", roomTypeID, err)
+	}
+
+	return roomID, nil
 }
 
 // GetRoomTypes implements domain.HabitacionRepository

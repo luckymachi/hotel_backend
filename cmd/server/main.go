@@ -10,6 +10,7 @@ import (
 	"github.com/Maxito7/hotel_backend/internal/infrastructure/repository"
 	handlers "github.com/Maxito7/hotel_backend/internal/interfaces/http"
 	"github.com/Maxito7/hotel_backend/internal/openai"
+	"github.com/Maxito7/hotel_backend/internal/scheduler"
 	services "github.com/Maxito7/hotel_backend/internal/service"
 	"github.com/Maxito7/hotel_backend/internal/tavily"
 	"github.com/gofiber/fiber/v2"
@@ -105,6 +106,10 @@ func main() {
 	// Reservas (servicio - ahora puede usar surveyService)
 	reservaService := application.NewReservaService(reservaRepo, reservaHabitacionRepo, habitacionRepo, personRepo, clientRepo, paymentRepo, reservationGuestRepo, emailClient, surveyService)
 	reservaHandler := handlers.NewReservaHandler(reservaService)
+
+	// Scheduler para actualizar reservas completadas automáticamente
+	reservationScheduler := scheduler.NewReservationScheduler(reservaRepo)
+	reservationScheduler.Start()
 
 	// S3
 	S3Service, err := services.NewS3Service()

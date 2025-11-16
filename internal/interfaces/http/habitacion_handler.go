@@ -441,24 +441,24 @@ func (h *HabitacionHandler) GetAvailableRooms(c *fiber.Ctx) error {
 		})
 	}
 
-	// Get available rooms
-	habitaciones, err := h.service.GetAvailableRooms(fechaEntrada, fechaSalida)
+	// Get available room types
+	roomTypes, err := h.service.GetAvailableRooms(fechaEntrada, fechaSalida)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Error al obtener las habitaciones disponibles",
 		})
 	}
 
-	// Filter rooms by capacity
-	habitacionesFiltradas := make([]domain.Habitacion, 0)
-	for _, habitacion := range habitaciones {
-		if habitacion.TipoHabitacion.CapacidadAdultos >= capacidadAdultos &&
-			habitacion.TipoHabitacion.CapacidadNinhos >= capacidadNinhos {
-			habitacionesFiltradas = append(habitacionesFiltradas, habitacion)
+	// Filter room types by capacity
+	roomTypesFiltrados := make([]domain.TipoHabitacion, 0)
+	for _, roomType := range roomTypes {
+		if roomType.CapacidadAdultos >= capacidadAdultos &&
+			roomType.CapacidadNinhos >= capacidadNinhos {
+			roomTypesFiltrados = append(roomTypesFiltrados, roomType)
 		}
 	}
 
-	return c.JSON(habitacionesFiltradas)
+	return c.JSON(roomTypesFiltrados)
 }
 
 // ListAmenities returns all amenities (public)

@@ -356,3 +356,31 @@ func (r *reservaRepository) CreateReservaServicios(reservaID int, servicios []do
 
 	return nil
 }
+
+// UpdateExpiredReservations actualiza reservas confirmadas a completadas cuando la fecha de checkout ha pasado
+func (r *reservaRepository) UpdateExpiredReservations() error {
+	query := `
+		UPDATE reservation r
+		SET status = 'Completada'
+		WHERE r.status = 'Confirmada'
+		AND EXISTS (
+			SELECT 1 
+			FROM reservation_room rh
+			WHERE rh.reservation_id = r.reservation_id
+			GROUP BY rh.reservation_id
+			HAVING MAX(rh.check_out_date) < CURRENT_DATE
+		)
+	`
+
+	result, err := r.db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("error al actualizar reservas expiradas: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
+		fmt.Printf("Reservas actualizadas a Completada: %d\n", rowsAffected)
+	}
+
+	return nil
+}
