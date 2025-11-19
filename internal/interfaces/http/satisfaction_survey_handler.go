@@ -197,3 +197,27 @@ func (h *SatisfactionSurveyHandler) ValidateToken(c *fiber.Ctx) error {
 		ClientID:      clientID,
 	})
 }
+
+// GetTopRatedSurveys obtiene las mejores encuestas para mostrar en el landing page
+func (h *SatisfactionSurveyHandler) GetTopRatedSurveys(c *fiber.Ctx) error {
+	// Parámetro de límite (cuántas encuestas mostrar)
+	limitStr := c.Query("limit", "10")
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Parámetro 'limit' inválido",
+		})
+	}
+
+	surveys, err := h.service.GetTopRatedSurveys(limit)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"data": surveys,
+	})
+}

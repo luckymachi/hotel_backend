@@ -185,6 +185,7 @@ func main() {
 	surveys.Get("/cliente/:clientId", surveyHandler.GetSurveysByClient)          // Obtener por cliente
 	surveys.Get("/all", surveyHandler.GetAllSurveys)                             // Obtener todas (con paginación)
 	surveys.Get("/promedios", surveyHandler.GetAverageScores)                    // Obtener promedios
+	surveys.Get("/mejores", surveyHandler.GetTopRatedSurveys)                    // Obtener mejores para landing page
 
 	// Rutas de S3
 	s3 := api.Group("/upload")

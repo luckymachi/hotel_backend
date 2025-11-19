@@ -103,6 +103,14 @@ func (s *SatisfactionSurveyService) GetAverageScores() (map[string]float64, erro
 	return s.surveyRepo.GetAverageScores()
 }
 
+// GetTopRatedSurveys obtiene las encuestas con mejor puntuación para el landing page
+func (s *SatisfactionSurveyService) GetTopRatedSurveys(limit int) ([]domain.SurveyResponse, error) {
+	if limit <= 0 {
+		limit = 10 // Default: 10 mejores encuestas
+	}
+	return s.surveyRepo.GetTopRatedSurveys(limit)
+}
+
 // ValidateToken valida un token y retorna los IDs de reserva y cliente
 func (s *SatisfactionSurveyService) ValidateToken(tokenValue string) (reservationID, clientID int, valid bool, err error) {
 	token, err := s.tokenRepo.GetByToken(tokenValue)
