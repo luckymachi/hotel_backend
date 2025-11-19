@@ -283,3 +283,60 @@ func (r *satisfactionSurveyRepository) GetAverageScores() (map[string]float64, e
 
 	return averages, nil
 }
+
+// GetTopRatedSurveys obtiene las encuestas con mejor puntuación para el landing page
+func (r *satisfactionSurveyRepository) GetTopRatedSurveys(limit int) ([]domain.SurveyResponse, error) {
+	query := `
+		SELECT 
+			survey_id,
+			general_experience,
+			cleanliness,
+			staff_attention,
+			comfort,
+			recommendation,
+			additional_services,
+			comments,
+			response_date,
+			(general_experience + cleanliness + staff_attention + comfort + recommendation + additional_services) / 6.0 as average_score
+		FROM satisfaction_survey
+		WHERE comments IS NOT NULL AND comments != ''
+		ORDER BY average_score DESC, response_date DESC
+		LIMIT $1
+	`
+
+	rows, err := r.db.Query(query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("error al obtener encuestas mejor puntuadas: %w", err)
+	}
+	defer rows.Close()
+
+	var surveys []domain.SurveyResponse
+	for rows.Next() {
+		var survey domain.SurveyResponse
+		var comments sql.NullString
+
+		err := rows.Scan(
+			&survey.SurveyID,
+			&survey.GeneralExperience,
+			&survey.Cleanliness,
+			&survey.StaffAttention,
+			&survey.Comfort,
+			&survey.Recommendation,
+			&survey.AdditionalServices,
+			&comments,
+			&survey.ResponseDate,
+			&survey.AverageScore,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error al escanear encuesta: %w", err)
+		}
+
+		if comments.Valid {
+			survey.Comments = &comments.String
+		}
+
+		surveys = append(surveys, survey)
+	}
+
+	return surveys, nil
+}

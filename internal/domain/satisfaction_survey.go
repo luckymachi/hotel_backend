@@ -18,6 +18,20 @@ type SatisfactionSurvey struct {
 	CreatedAt          time.Time `json:"createdAt"`
 }
 
+// SurveyResponse representa una respuesta simplificada de encuesta para el landing page
+type SurveyResponse struct {
+	SurveyID           int       `json:"surveyId"`
+	GeneralExperience  int       `json:"generalExperience"`
+	Cleanliness        int       `json:"cleanliness"`
+	StaffAttention     int       `json:"staffAttention"`
+	Comfort            int       `json:"comfort"`
+	Recommendation     int       `json:"recommendation"`
+	AdditionalServices int       `json:"additionalServices"`
+	Comments           *string   `json:"comments,omitempty"`
+	ResponseDate       time.Time `json:"responseDate"`
+	AverageScore       float64   `json:"averageScore"`
+}
+
 // SatisfactionSurveyRepository define las operaciones con encuestas
 type SatisfactionSurveyRepository interface {
 	// Create crea una nueva encuesta de satisfacción
@@ -30,4 +44,6 @@ type SatisfactionSurveyRepository interface {
 	GetAll(limit, offset int) ([]SatisfactionSurvey, error)
 	// GetAverageScores obtiene los promedios de todas las respuestas
 	GetAverageScores() (map[string]float64, error)
+	// GetTopRatedSurveys obtiene las encuestas con mejor puntuación para el landing page
+	GetTopRatedSurveys(limit int) ([]SurveyResponse, error)
 }
