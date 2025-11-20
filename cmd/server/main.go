@@ -167,6 +167,7 @@ func main() {
 	reservas := api.Group("/reservas")
 	reservas.Post("/", reservaHandler.CreateReserva)
 	reservas.Get("/:id", reservaHandler.GetReservaByID)
+	reservas.Get("/:id/verify", reservaHandler.VerifyReservation) // Verificación completa de reserva
 	reservas.Get("/cliente/:clienteId", reservaHandler.GetReservasCliente)
 	reservas.Patch("/:id/estado", reservaHandler.UpdateReservaEstado)
 	reservas.Post("/:id/cancelar", reservaHandler.CancelarReserva)
