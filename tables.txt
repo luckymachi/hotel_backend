@@ -1,419 +1,485 @@
-create table campanha
+create table alert
 (
-    campanhaid  integer default nextval('"campaña_campanhaid_seq"'::regclass) not null
+    alert_id          serial
         primary key,
-    nombre      varchar(100)                                                  not null,
-    descripcion varchar(300)                                                  not null,
-    fechainicio timestamp                                                     not null,
-    fechafin    timestamp                                                     not null,
-    estado      integer                                                       not null
+    message           varchar(100) not null,
+    was_read          boolean      not null,
+    read_date         timestamp    not null,
+    registration_date timestamp    not null,
+    alert_type        integer      not null,
+    status            integer      not null
 );
 
-alter table campanha
-    owner to postgres;
+alter table alert
+    owner to lapantera;
 
-create table publicacion
+create table campaign
 (
-    publicidadid        serial
+    campaign_id serial
         primary key,
-    titulo              varchar(100) not null,
-    contenido           varchar(250) not null,
-    cantidadlikes       integer      not null,
-    cantidadcomentarios integer      not null,
-    cantidadreacciones  integer      not null,
-    fechapublicacion    timestamp    not null,
-    fecharegistro       timestamp    not null,
-    estado              integer      not null,
-    campañaid           integer
-        references campanha
+    name        varchar(100) not null,
+    description varchar(300) not null,
+    start_date  timestamp    not null,
+    end_date    timestamp    not null,
+    status      integer      not null
 );
 
-alter table publicacion
-    owner to postgres;
+alter table campaign
+    owner to lapantera;
 
-create table redsocial
+create table promotional_content
 (
-    redsocialid serial
+    content_id       serial
         primary key,
-    nombre      varchar(100) not null,
-    apikey      varchar(200) not null,
-    estado      integer      not null
+    name             varchar(150)      not null,
+    title            varchar(200)      not null,
+    description      text              not null,
+    destination_link varchar(500)      not null,
+    button_text      varchar(50)       not null,
+    start_date       timestamp         not null,
+    end_date         timestamp         not null,
+    views_count      integer default 0 not null,
+    clicks_count     integer default 0 not null
 );
 
-alter table redsocial
-    owner to postgres;
+alter table promotional_content
+    owner to lapantera;
 
-create table alerta
+create table event
 (
-    alertaid      serial
+    event_id             serial
         primary key,
-    mensaje       varchar(100) not null,
-    fueleido      boolean      not null,
-    fechalectura  timestamp    not null,
-    fecharegistro timestamp    not null,
-    tipoalerta    integer      not null,
-    estado        integer      not null
+    title                varchar(100)          not null,
+    button_title         varchar(200)          not null,
+    description          varchar(200)          not null,
+    date                 timestamp             not null,
+    start_date           timestamp             not null,
+    end_date             timestamp             not null,
+    location             varchar(200)          not null,
+    cover_image_url      varchar(500)          not null,
+    banner_image_url     varchar(500)          not null,
+    max_capacity         integer               not null,
+    entry_price          double precision      not null,
+    requires_reservation boolean default false not null,
+    active               boolean default true  not null,
+    creation_date        timestamp             not null
 );
 
-alter table alerta
-    owner to postgres;
+alter table event
+    owner to lapantera;
 
-create table serviciohotel
+create table contact_form
 (
-    serviciohotelid serial
+    form_id       serial
         primary key,
-    titulo          varchar(100)                        not null,
-    tituloboton     varchar(200)                        not null,
-    descripcion     varchar(200)                        not null,
-    principalurl    varchar(500)                        not null,
-    orden           integer                             not null,
-    activo          boolean   default true              not null,
-    fechacreacion   timestamp default CURRENT_TIMESTAMP not null
+    user_id       integer,
+    name          varchar(100)            not null,
+    email         varchar(150)            not null,
+    phone         varchar(20)             not null,
+    message       text                    not null,
+    status        form_status             not null,
+    response_date timestamp,
+    sent_date     timestamp default now() not null
 );
 
-alter table serviciohotel
-    owner to postgres;
+alter table contact_form
+    owner to lapantera;
 
-create table evento
+create table hotel_facilities
 (
-    eventoid         serial
+    facility_id          serial
+        constraint instalacionesdelhotel_pkey
+            primary key,
+    name                 varchar(100)          not null,
+    category             facility_category     not null,
+    schedule             varchar(100)          not null,
+    description          text                  not null,
+    location             varchar(100)          not null,
+    floor                integer               not null,
+    main_image_url       varchar(500)          not null,
+    capacity             integer               not null,
+    requires_reservation boolean default false not null,
+    additional_cost      double precision      not null,
+    active               boolean default true  not null,
+    creation_date        timestamp             not null
+);
+
+alter table hotel_facilities
+    owner to lapantera;
+
+create table notification
+(
+    notification_id   serial
         primary key,
-    titulo           varchar(100)          not null,
-    tituloboton      varchar(200)          not null,
-    descripcion      varchar(200)          not null,
-    fecha            timestamp             not null,
-    fechainicio      timestamp             not null,
-    fechafin         timestamp             not null,
-    ubicacion        varchar(200)          not null,
-    imagenportadaurl varchar(500)          not null,
-    imagenbannerurl  varchar(500)          not null,
-    capacidadmaxima  integer               not null,
-    precioentrada    double precision      not null,
-    requierereserva  boolean default false not null,
-    activo           boolean default true  not null,
-    fechacreacion    timestamp             not null
+    message           varchar(100) not null,
+    sent_date         timestamp    not null,
+    notification_type varchar(20)  not null,
+    status            integer      not null
 );
 
-alter table evento
-    owner to postgres;
+alter table notification
+    owner to lapantera;
 
-create table instalacionesdelhotel
+create table person
 (
-    facilityid          serial
+    person_id         serial
         primary key,
-    nombre              varchar(100)          not null,
-    categoria           categoriainstalacion  not null,
-    horario             varchar(100)          not null,
-    descripcion         text                  not null,
-    ubicacion           varchar(100)          not null,
-    piso                integer               not null,
-    imagenprincipalurl  varchar(500)          not null,
-    capacidad           integer               not null,
-    requierereservacion boolean default false not null,
-    costoadicional      double precision      not null,
-    activo              boolean default true  not null,
-    fechacreacion       timestamp             not null
-);
-
-alter table instalacionesdelhotel
-    owner to postgres;
-
-create table formulariocontacto
-(
-    formularioid   serial
-        primary key,
-    usuarioid      integer,
-    nombre         varchar(100)            not null,
-    email          varchar(150)            not null,
-    telefono       varchar(20)             not null,
-    mensaje        text                    not null,
-    estado         estadoformulario        not null,
-    fecharespuesta timestamp,
-    fechaenvio     timestamp default now() not null
-);
-
-alter table formulariocontacto
-    owner to postgres;
-
-create table contenidopromocional
-(
-    contenidoid    serial
-        primary key,
-    nombre         varchar(150)      not null,
-    titulo         varchar(200)      not null,
-    descripcion    text              not null,
-    enlacedestino  varchar(500)      not null,
-    textoboton     varchar(50)       not null,
-    fechainicio    timestamp         not null,
-    fechafin       timestamp         not null,
-    vecesvisto     integer default 0 not null,
-    vecesclickeado integer default 0 not null
-);
-
-alter table contenidopromocional
-    owner to postgres;
-
-create table multimedia
-(
-    mediaid         serial
-        primary key,
-    tipomedia       varchar(10)      not null,
-    urlarchivo      varchar(50)      not null,
-    formato         varchar(10)      not null,
-    tamanhoarchivo  double precision not null,
-    serviciohotelid integer
-        references serviciohotel,
-    eventoid        integer
-        references evento,
-    facilityid      integer
-        references instalacionesdelhotel,
-    formularioid    integer
-        references formulariocontacto,
-    contenidoid     integer
-        references contenidopromocional
-);
-
-alter table multimedia
-    owner to postgres;
-
-create table notificacion
-(
-    notificacionid   serial
-        primary key,
-    mensaje          varchar(100) not null,
-    fechaenvio       timestamp    not null,
-    tiponotificacion varchar(20)  not null,
-    estado           integer      not null
-);
-
-alter table notificacion
-    owner to postgres;
-
-create table tipohabitacion
-(
-    tipohabitacionid serial
-        primary key,
-    titulo           varchar(50)      not null,
-    descripcion      text             not null,
-    capacidadadultos integer          not null,
-    capacidadninhos  integer          not null,
-    cantidadcamas    integer          not null,
-    precio           double precision not null
-);
-
-alter table tipohabitacion
-    owner to postgres;
-
-create table habitacion
-(
-    habitacionid       serial
-        primary key,
-    nombre             varchar(50)      not null,
-    capacidad          integer          not null,
-    numero             varchar(20)      not null,
-    estado             estadohabitacion not null,
-    tipohabitacionid   integer
-        references tipohabitacion,
-    descripciongeneral text             not null,
-    mediaid            integer
-        references multimedia
-);
-
-alter table habitacion
-    owner to postgres;
-
-create table servicio
-(
-    servicioid serial
-        primary key,
-    nombre     varchar(50)      not null,
-    precio     double precision not null
-);
-
-alter table servicio
-    owner to postgres;
-
-create table reserva
-(
-    reservaid         serial
-        primary key,
-    cantidadadultos   integer          not null,
-    cantidadniños     integer          not null,
-    estado            estadoreserva    not null,
-    clienteid         varchar(50)      not null,
-    subtotal          double precision not null,
-    descuento         double precision not null,
-    fechaconfirmacion timestamp        not null
-);
-
-alter table reserva
-    owner to postgres;
-
-create table pago
-(
-    pagoid     serial
-        primary key,
-    monto      double precision not null,
-    fecha      timestamp        not null,
-    metodopago metodopago       not null,
-    estado     estadopago       not null,
-    reservaid  integer
-        references reserva
-);
-
-alter table pago
-    owner to postgres;
-
-create table reservaxhabitacion
-(
-    reservaid    integer          not null
-        references reserva,
-    habitacionid integer          not null
-        references habitacion,
-    precio       double precision not null,
-    fechaentrada timestamp        not null,
-    fechasalida  timestamp        not null,
-    estado       integer          not null,
-    primary key (habitacionid, reservaid)
-);
-
-alter table reservaxhabitacion
-    owner to postgres;
-
-create table reservaxservicio
-(
-    reservaid  integer   not null
-        references reserva,
-    servicioid integer   not null
-        references servicio,
-    fechaincio timestamp not null,
-    fechafin   timestamp not null,
-    estado     integer   not null,
-    primary key (servicioid, reservaid)
-);
-
-alter table reservaxservicio
-    owner to postgres;
-
-create table post
-(
-    postid              serial
-        primary key,
-    titulo              varchar(100)                        not null,
-    contenido           varchar(100)                        not null,
-    cantidadlikes       integer                             not null,
-    cantidadcomentarios integer                             not null,
-    cantidadreacciones  integer                             not null,
-    fechapublicacion    timestamp                           not null,
-    fecharegistro       timestamp default CURRENT_TIMESTAMP not null,
-    campañaid           integer
-        references campanha,
-    redsocialid         integer
-        references redsocial
-);
-
-alter table post
-    owner to postgres;
-
-create table persona
-(
-    personaid        serial
-        primary key,
-    nombre           varchar(100)           not null,
-    primerapellido   varchar(100)           not null,
-    segundoapellido  varchar(100),
-    numerodocumento  varchar(10)            not null,
-    genero           varchar(10)            not null,
-    correo           varchar(100)           not null
+    name              varchar(100)           not null,
+    first_surname     varchar(100)           not null,
+    second_surname    varchar(100),
+    document_number   varchar(10)            not null,
+    gender            varchar(10)            not null,
+    email             varchar(100)           not null
         unique,
-    telefono_1       varchar(20)            not null,
-    telefono_2       varchar(20),
-    ciudadreferencia varchar(50),
-    paisreferencia   varchar(50),
-    activo           boolean   default true not null,
-    fechacreacion    timestamp default CURRENT_TIMESTAMP
+    phone_1           varchar(20)            not null,
+    phone_2           varchar(20),
+    reference_city    varchar(50),
+    reference_country varchar(50),
+    active            boolean   default true not null,
+    creation_date     timestamp default CURRENT_TIMESTAMP
 );
 
-alter table persona
-    owner to postgres;
+alter table person
+    owner to lapantera;
 
-create table cliente
+create table client
 (
-    clienteid            serial
+    client_id                serial
         primary key,
-    canalcap             canalcaptura              not null,
-    viajaconniños        integer      default 0    not null,
-    temporadainteres     varchar(100) default '-'::character varying,
-    fechaultimamodestado timestamp    default CURRENT_TIMESTAMP,
-    fecharegistro        timestamp    default CURRENT_TIMESTAMP,
-    activo               boolean      default true not null,
-    estadocap            estadocaptura             not null,
-    personaid            integer
-        references persona,
-    tipocl               tipocliente               not null
+    capture_channel          capture_channel             not null,
+    travels_with_children    integer        default 0    not null,
+    season_interest          varchar(100)   default '-'::character varying,
+    last_status_change_date  timestamp      default CURRENT_TIMESTAMP,
+    registration_date        timestamp      default CURRENT_TIMESTAMP,
+    active                   boolean        default true not null,
+    capture_status           capture_status              not null,
+    person_id                integer
+        constraint cliente_personaid_fkey
+            references person,
+    client_type              client_type                 not null,
+    total_bookings           integer        default 0,
+    total_revenue            numeric(10, 2) default 0.00,
+    rating                   numeric(3, 2)  default 0.00,
+    average_value            numeric(10, 2) default 0.00,
+    age                      integer        default 0,
+    marital_status           varchar(50),
+    guest_type               varchar(50),
+    contact_language         varchar(50),
+    average_visit_duration   numeric(10, 2) default 0.0,
+    preferred_booking_season varchar(50),
+    main_contact_channel     varchar(50),
+    contact_frequency        varchar(50),
+    last_contact_date        timestamp
 );
 
-alter table cliente
-    owner to postgres;
-
-create table interaccion
-(
-    interaccionid      serial
-        primary key,
-    detalle            varchar(400)     not null,
-    fechapublicacion   timestamp        not null,
-    estado             integer          not null,
-    fechaanalisis      timestamp        not null,
-    userredsocial      varchar(250)     not null,
-    paisuserredsocial  varchar(250)     not null,
-    comentariooriginal varchar(400)     not null,
-    alertaid           integer
-        unique
-        references alerta,
-    redsocialid        integer
-        references redsocial
-        constraint fk_int_redsocial
-            references redsocial,
-    rating             double precision not null,
-    sentimiento        varchar(50)      not null,
-    clienteid          integer          not null
-        constraint fk_clienteid
-            references cliente
-);
-
-alter table interaccion
-    owner to postgres;
-
-create table mensaje
-(
-    mensajeid     serial
-        primary key,
-    contenido     varchar(100)                        not null,
-    fecharegistro timestamp default CURRENT_TIMESTAMP not null,
-    clienteid     integer
-        references cliente
-);
-
-alter table mensaje
-    owner to postgres;
+alter table client
+    owner to lapantera;
 
 create table conversation_history
 (
     id         varchar(100)                        not null
         primary key,
-    cliente_id integer
-        references cliente,
+    client_id  integer
+        constraint conversation_history_cliente_id_fkey
+            references client,
     messages   jsonb                               not null,
     created_at timestamp default CURRENT_TIMESTAMP not null,
     updated_at timestamp default CURRENT_TIMESTAMP not null
 );
 
 alter table conversation_history
-    owner to postgres;
+    owner to lapantera;
 
-create index idx_conversation_cliente
-    on conversation_history (cliente_id);
+create index idx_conversation_client
+    on conversation_history (client_id);
 
 create index idx_conversation_updated
     on conversation_history (updated_at desc);
+
+create table message
+(
+    message_id        serial
+        primary key,
+    content           varchar(100)                        not null,
+    registration_date timestamp default CURRENT_TIMESTAMP not null,
+    client_id         integer
+        constraint mensaje_clienteid_fkey
+            references client
+);
+
+alter table message
+    owner to lapantera;
+
+create table publication
+(
+    publication_id    serial
+        primary key,
+    title             varchar(100) not null,
+    content           varchar(250) not null,
+    likes_count       integer      not null,
+    comments_count    integer      not null,
+    reactions_count   integer      not null,
+    publication_date  timestamp    not null,
+    registration_date timestamp    not null,
+    status            integer      not null,
+    campaign_id       integer
+        references campaign
+);
+
+alter table publication
+    owner to lapantera;
+
+create table social_network
+(
+    social_network_id serial
+        primary key,
+    name              varchar(100) not null,
+    api_key           varchar(200) not null,
+    status            integer      not null
+);
+
+alter table social_network
+    owner to lapantera;
+
+create table interaction
+(
+    interaction_id      serial
+        primary key,
+    detail              varchar(400)     not null,
+    publication_date    timestamp        not null,
+    status              integer          not null,
+    analysis_date       timestamp        not null,
+    social_user         varchar(250)     not null,
+    social_user_country varchar(250)     not null,
+    original_comment    varchar(400)     not null,
+    alert_id            integer
+        constraint interaccion_alertaid_key
+            unique
+        constraint interaccion_alertaid_fkey
+            references alert,
+    social_network_id   integer
+        constraint fk_int_social_network
+            references social_network
+        constraint interaccion_redsocialid_fkey
+            references social_network,
+    rating              double precision not null,
+    sentiment           varchar(50)      not null,
+    client_id           integer          not null
+        constraint fk_client_id
+            references client
+);
+
+alter table interaction
+    owner to lapantera;
+
+create table post
+(
+    post_id           serial
+        primary key,
+    title             varchar(100)                        not null,
+    content           varchar(100)                        not null,
+    likes_count       integer                             not null,
+    comments_count    integer                             not null,
+    reactions_count   integer                             not null,
+    publication_date  timestamp                           not null,
+    registration_date timestamp default CURRENT_TIMESTAMP not null,
+    campaign_id       integer
+        references campaign,
+    social_network_id integer
+        constraint post_redsocialid_fkey
+            references social_network
+);
+
+alter table post
+    owner to lapantera;
+
+create table reservation
+(
+    reservation_id    serial
+        primary key,
+    adults_count      integer            not null,
+    children_count    integer            not null,
+    status            reservation_status not null,
+    client_id         varchar(50)        not null,
+    subtotal          double precision   not null,
+    discount          double precision   not null,
+    confirmation_date timestamp          not null
+);
+
+alter table reservation
+    owner to lapantera;
+
+create table payment
+(
+    payment_id     serial
+        primary key,
+    amount         double precision not null,
+    date           timestamp        not null,
+    payment_method payment_method   not null,
+    status         payment_status   not null,
+    reservation_id integer
+        constraint pago_reservaid_fkey
+            references reservation
+);
+
+alter table payment
+    owner to lapantera;
+
+create table service
+(
+    service_id  serial
+        primary key,
+    name        varchar(50)      not null,
+    price       double precision not null,
+    description text
+);
+
+alter table service
+    owner to lapantera;
+
+create table reservation_service
+(
+    reservation_id integer   not null
+        constraint reservaxservicio_reservaid_fkey
+            references reservation,
+    service_id     integer   not null
+        constraint reservaxservicio_servicioid_fkey
+            references service,
+    start_date     timestamp not null,
+    end_date       timestamp not null,
+    status         integer   not null,
+    primary key (service_id, reservation_id)
+);
+
+alter table reservation_service
+    owner to lapantera;
+
+create table hotel_service
+(
+    hotel_service_id serial
+        primary key,
+    title            varchar(100)                        not null,
+    button_title     varchar(200)                        not null,
+    description      varchar(200)                        not null,
+    main_url         varchar(500)                        not null,
+    display_order    integer                             not null,
+    active           boolean   default true              not null,
+    creation_date    timestamp default CURRENT_TIMESTAMP not null
+);
+
+alter table hotel_service
+    owner to lapantera;
+
+create table multimedia
+(
+    media_id         serial
+        primary key,
+    media_type       varchar(10)      not null,
+    file_url         varchar(50)      not null,
+    format           varchar(10)      not null,
+    file_size        double precision not null,
+    hotel_service_id integer
+        constraint multimedia_serviciohotelid_fkey
+            references hotel_service,
+    event_id         integer
+        constraint multimedia_eventoid_fkey
+            references event,
+    facility_id      integer
+        constraint multimedia_facilityid_fkey
+            references hotel_facilities,
+    form_id          integer
+        constraint multimedia_formularioid_fkey
+            references contact_form,
+    content_id       integer
+        constraint multimedia_contenidoid_fkey
+            references promotional_content
+);
+
+alter table multimedia
+    owner to lapantera;
+
+create table room_type
+(
+    room_type_id      serial
+        constraint tiporoom_pkey
+            primary key,
+    title             varchar(50)      not null,
+    description       text             not null,
+    adult_capacity    integer          not null,
+    children_capacity integer          not null,
+    beds_count        integer          not null,
+    price             double precision not null
+);
+
+alter table room_type
+    owner to lapantera;
+
+create table room
+(
+    room_id             serial
+        primary key,
+    name                varchar(50) not null,
+    capacity            integer     not null,
+    number              varchar(20) not null,
+    status              room_status not null,
+    room_type_id        integer
+        references room_type,
+    general_description text        not null,
+    media_id            integer
+        constraint habitacion_mediaid_fkey
+            references multimedia
+);
+
+alter table room
+    owner to lapantera;
+
+create table reservation_room
+(
+    reservation_id integer          not null
+        constraint reservaxhabitacion_reservaid_fkey
+            references reservation,
+    room_id        integer          not null
+        constraint reservaxhabitacion_habitacionid_fkey
+            references room,
+    price          double precision not null,
+    check_in_date  timestamp        not null,
+    check_out_date timestamp        not null,
+    status         integer          not null,
+    constraint reservaxroom_pkey
+        primary key (room_id, reservation_id)
+);
+
+alter table reservation_room
+    owner to lapantera;
+
+create table client_interaction_history
+(
+    client_int_hist_id   serial
+        primary key,
+    client_id            integer     not null
+        references client
+            on delete cascade,
+    interaction_type     varchar(50) not null,
+    sentiment            varchar(20),
+    description          text,
+    interaction_datetime timestamp   not null
+);
+
+alter table client_interaction_history
+    owner to lapantera;
+
+create table client_notes
+(
+    client_note_id serial
+        primary key,
+    client_id      integer not null
+        references client
+            on delete cascade,
+    note_text      text    not null,
+    category       varchar(100),
+    created_at     timestamp default now()
+);
+
+alter table client_notes
+    owner to lapantera;
 
