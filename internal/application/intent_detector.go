@@ -170,7 +170,14 @@ func (d *IntentDetector) DetectAndProcess(message string, reservation *domain.Re
 		}
 
 		args, _ := json.Marshal(reservaData)
+		log.Printf("[IntentDetector] Ejecutando create_reservation con datos: %s", string(args))
 		result, err := d.reservationTools.CreateReservation(string(args))
+
+		if err != nil {
+			log.Printf("[IntentDetector] ERROR en create_reservation: %v", err)
+		} else {
+			log.Printf("[IntentDetector] create_reservation exitoso: %s", result)
+		}
 
 		detected.ToolResults = append(detected.ToolResults, ToolResult{
 			ToolName: "create_reservation",

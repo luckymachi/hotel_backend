@@ -240,6 +240,9 @@ func (rt *ReservationTools) CreateReservation(args string) (string, error) {
 	}
 	subtotal := tipo.Precio * float64(noches)
 
+	// Fecha de nacimiento por defecto (18 años atrás si no se proporciona)
+	defaultBirthDate := time.Now().AddDate(-18, 0, 0)
+
 	// Crear la persona
 	person := &domain.Person{
 		Name:             input.PersonalData.Nombre,
@@ -250,8 +253,11 @@ func (rt *ReservationTools) CreateReservation(args string) (string, error) {
 		Email:            input.PersonalData.Correo,
 		Phone1:           input.PersonalData.Telefono1,
 		Phone2:           input.PersonalData.Telefono2,
-		ReferenceCity:    input.PersonalData.CiudadReferencia,
-		ReferenceCountry: input.PersonalData.PaisReferencia,
+		ReferenceCity:    getStringValue(input.PersonalData.CiudadReferencia),
+		ReferenceCountry: getStringValue(input.PersonalData.PaisReferencia),
+		Active:           true,
+		CreationDate:     time.Now(),
+		BirthDate:        defaultBirthDate,
 	}
 
 	// Crear la reserva
@@ -274,9 +280,21 @@ func (rt *ReservationTools) CreateReservation(args string) (string, error) {
 	}
 
 	// Crear la reserva con el cliente
+	log.Printf("[CreateReservation] Creando reserva para cliente: %s %s (DNI: %s)",
+		person.Name, person.FirstSurname, person.DocumentNumber)
+
 	if err := rt.reservaService.CreateReservaWithClient(person, reserva); err != nil {
+		log.Printf("[CreateReservation] ERROR al crear reserva: %v", err)
 		return "", fmt.Errorf("error al crear la reserva: %w", err)
 	}
+
+	// Verificar que la reserva se creó correctamente (ID debe ser > 0)
+	if reserva.ID == 0 {
+		log.Printf("[CreateReservation] ERROR: Reserva creada pero ID es 0")
+		return "", fmt.Errorf("error: la reserva no se creó correctamente en la base de datos")
+	}
+
+	log.Printf("[CreateReservation] Reserva creada exitosamente con ID: %d", reserva.ID)
 
 	result := fmt.Sprintf("✅ Reserva creada exitosamente!\n\n"+
 		"Número de Reserva: #%d\n"+
@@ -306,6 +324,14 @@ func (rt *ReservationTools) CreateReservation(args string) (string, error) {
 	)
 
 	return result, nil
+}
+
+// getStringValue convierte un *string a string, retornando "" si es nil
+func getStringValue(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // ExecuteTool ejecuta una herramienta por nombre
