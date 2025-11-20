@@ -20,6 +20,7 @@ type ChatbotService struct {
 	searchService    *SearchService
 	location         string
 	reservationTools *ReservationTools
+	intentDetector   *IntentDetector
 }
 
 func NewChatbotService(
@@ -36,6 +37,9 @@ func NewChatbotService(
 	// Crear las herramientas de reserva
 	reservationTools := NewReservationTools(habitacionRepo, reservaService, personRepo, clientRepo)
 
+	// Crear el detector de intenciones
+	intentDetector := NewIntentDetector(reservationTools)
+
 	return &ChatbotService{
 		repo:             repo,
 		openaiClient:     openaiClient,
@@ -44,6 +48,7 @@ func NewChatbotService(
 		searchService:    searchService,
 		location:         location,
 		reservationTools: reservationTools,
+		intentDetector:   intentDetector,
 	}
 }
 
