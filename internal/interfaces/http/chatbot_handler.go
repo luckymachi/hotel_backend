@@ -41,7 +41,8 @@ func (h *ChatbotHandler) Chat(c *fiber.Ctx) error {
 		})
 	}
 
-	response, err := h.service.ProcessMessage(req)
+	// Usar ProcessMessageV2 que tiene detección automática de intenciones
+	response, err := h.service.ProcessMessageV2(req)
 	if err != nil {
 		log.Printf("Error processing message: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{

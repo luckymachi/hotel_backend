@@ -83,3 +83,25 @@ func (r *clientRepository) GetPersonEmailByClientID(clientID int) (string, error
 
 	return email, nil
 }
+
+// GetByID obtiene un cliente por su ID
+func (r *clientRepository) GetByID(clientID int) (*domain.Client, error) {
+	query := `
+		SELECT client_id, person_id
+		FROM client
+		WHERE client_id = $1
+	`
+
+	var client domain.Client
+	err := r.db.QueryRow(query, clientID).Scan(&client.ClientID, &client.PersonID)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("no existe cliente con client_id %d", clientID)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("error al obtener cliente: %w", err)
+	}
+
+	return &client, nil
+}

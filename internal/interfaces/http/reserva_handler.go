@@ -491,3 +491,27 @@ func (h *ReservaHandler) GetReservasEnRango(c *fiber.Ctx) error {
 		"data": reservas,
 	})
 }
+
+// VerifyReservation verifica una reserva y retorna información completa
+func (h *ReservaHandler) VerifyReservation(c *fiber.Ctx) error {
+	idParam := c.Params("id")
+	id, err := strconv.Atoi(idParam)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "ID de reserva inválido",
+		})
+	}
+
+	verification, err := h.service.VerifyReservation(id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    verification,
+		"message": "Reserva verificada exitosamente",
+	})
+}

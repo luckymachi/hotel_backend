@@ -8,6 +8,30 @@ import (
 	"github.com/Maxito7/hotel_backend/internal/email"
 )
 
+// ReservationVerification contiene información completa para verificar una reserva
+type ReservationVerification struct {
+	Reservation      *domain.Reserva   `json:"reservation"`
+	Client           *domain.Client    `json:"client"`
+	Person           *domain.Person    `json:"person"`
+	Rooms            []RoomDetails     `json:"rooms"`
+	Payments         []domain.Payment  `json:"payments,omitempty"`
+	ConversationID   *string           `json:"conversationId,omitempty"`
+	VerificationTime time.Time         `json:"verificationTime"`
+}
+
+// RoomDetails contiene detalles de habitación para verificación
+type RoomDetails struct {
+	RoomID       int       `json:"roomId"`
+	RoomNumber   string    `json:"roomNumber"`
+	RoomName     string    `json:"roomName"`
+	RoomType     string    `json:"roomType"`
+	CheckInDate  time.Time `json:"checkInDate"`
+	CheckOutDate time.Time `json:"checkOutDate"`
+	Price        float64   `json:"price"`
+	Nights       int       `json:"nights"`
+	TotalPrice   float64   `json:"totalPrice"`
+}
+
 type ReservaService struct {
 	reservaRepo           domain.ReservaRepository
 	reservaHabitacionRepo domain.ReservaHabitacionRepository
@@ -561,4 +585,80 @@ func (s *ReservaService) generarYEnviarEncuesta(reservaID, clienteID int, email 
 			fmt.Printf("Email de encuesta enviado a: %s\n", email)
 		}
 	}
+}
+
+// VerifyReservation obtiene información completa de una reserva para verificación
+func (s *ReservaService) VerifyReservation(reservationID int) (*ReservationVerification, error) {
+	// 1. Obtener la reserva
+	reserva, err := s.reservaRepo.GetReservaByID(reservationID)
+	if err != nil {
+		return nil, fmt.Errorf("error al obtener reserva: %w", err)
+	}
+
+	// 2. Obtener información del cliente
+	client, err := s.clientRepo.GetByID(reserva.ClienteID)
+	if err != nil {
+		return nil, fmt.Errorf("error al obtener cliente: %w", err)
+	}
+
+	// 3. Obtener información de la persona
+	person, err := s.personRepo.GetByID(client.PersonID)
+	if err != nil {
+		return nil, fmt.Errorf("error al obtener persona: %w", err)
+	}
+
+	// 4. Obtener detalles de las habitaciones
+	rooms := make([]RoomDetails, 0)
+	for _, resRoom := range reserva.Habitaciones {
+		// Obtener la habitación usando GetRoomByID
+		room, err := s.habitacionRepo.GetRoomByID(resRoom.HabitacionID)
+		if err != nil {
+			// Log error pero continuar
+			fmt.Printf("Error al obtener habitación %d: %v\n", resRoom.HabitacionID, err)
+			continue
+		}
+
+		// Calcular noches
+		nights := int(resRoom.FechaSalida.Sub(resRoom.FechaEntrada).Hours() / 24)
+		if nights < 1 {
+			nights = 1
+		}
+
+		roomDetail := RoomDetails{
+			RoomID:       resRoom.HabitacionID,
+			RoomNumber:   room.Numero,
+			RoomName:     room.Nombre,
+			RoomType:     room.TipoHabitacion.Titulo, // Usar el título del tipo de habitación
+			CheckInDate:  resRoom.FechaEntrada,
+			CheckOutDate: resRoom.FechaSalida,
+			Price:        resRoom.Precio,
+			Nights:       nights,
+			TotalPrice:   resRoom.Precio * float64(nights),
+		}
+		rooms = append(rooms, roomDetail)
+	}
+
+	// 5. Obtener pagos relacionados
+	payment, err := s.paymentRepo.GetByReservationID(reservationID)
+	payments := []domain.Payment{}
+	if err != nil {
+		// Los pagos son opcionales, solo log el error
+		fmt.Printf("Error al obtener pagos para reserva %d: %v\n", reservationID, err)
+	} else if payment != nil {
+		// Convertir el pago único a slice
+		payments = []domain.Payment{*payment}
+	}
+
+	// 6. Construir respuesta de verificación
+	verification := &ReservationVerification{
+		Reservation:      reserva,
+		Client:           client,
+		Person:           person,
+		Rooms:            rooms,
+		Payments:         payments,
+		ConversationID:   nil, // Podría agregarse buscando en conversation_history
+		VerificationTime: time.Now(),
+	}
+
+	return verification, nil
 }
