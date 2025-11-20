@@ -60,11 +60,9 @@ func main() {
 	servicioService := application.NewServicioService(servicioRepo)
 	servicioHandler := handlers.NewServicioHandler(servicioService)
 
-	// Chatbot - NUEVO
+	// Chatbot - ANTES de reservaService porque reservaService lo necesitará
 	openaiClient := openai.NewClient(cfg.OpenAIAPIKey)
 	chatbotRepo := repository.NewChatbotRepository(db)
-	chatbotService := application.NewChatbotService(chatbotRepo, openaiClient, habitacionRepo, tavilyClient, cfg.HotelLocation, searchService)
-	chatbotHandler := handlers.NewChatbotHandler(chatbotService)
 
 	// Email Client
 	emailClient, err := email.NewClient(
@@ -106,6 +104,10 @@ func main() {
 	// Reservas (servicio - ahora puede usar surveyService)
 	reservaService := application.NewReservaService(reservaRepo, reservaHabitacionRepo, habitacionRepo, personRepo, clientRepo, paymentRepo, reservationGuestRepo, emailClient, surveyService)
 	reservaHandler := handlers.NewReservaHandler(reservaService)
+
+	// Chatbot Service (después de reservaService porque lo necesita)
+	chatbotService := application.NewChatbotService(chatbotRepo, openaiClient, habitacionRepo, tavilyClient, cfg.HotelLocation, searchService, reservaService, personRepo, clientRepo)
+	chatbotHandler := handlers.NewChatbotHandler(chatbotService)
 
 	// Scheduler para actualizar reservas completadas automáticamente
 	reservationScheduler := scheduler.NewReservationScheduler(reservaRepo)
