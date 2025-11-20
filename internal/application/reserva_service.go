@@ -639,11 +639,14 @@ func (s *ReservaService) VerifyReservation(reservationID int) (*ReservationVerif
 	}
 
 	// 5. Obtener pagos relacionados
-	payments, err := s.paymentRepo.GetByReservationID(reservationID)
+	payment, err := s.paymentRepo.GetByReservationID(reservationID)
+	payments := []domain.Payment{}
 	if err != nil {
 		// Los pagos son opcionales, solo log el error
 		fmt.Printf("Error al obtener pagos para reserva %d: %v\n", reservationID, err)
-		payments = []domain.Payment{}
+	} else if payment != nil {
+		// Convertir el pago único a slice
+		payments = []domain.Payment{*payment}
 	}
 
 	// 6. Construir respuesta de verificación
