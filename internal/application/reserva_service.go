@@ -610,8 +610,8 @@ func (s *ReservaService) VerifyReservation(reservationID int) (*ReservationVerif
 	// 4. Obtener detalles de las habitaciones
 	rooms := make([]RoomDetails, 0)
 	for _, resRoom := range reserva.Habitaciones {
-		// Obtener la habitación
-		room, err := s.habitacionRepo.GetHabitacionByID(resRoom.HabitacionID)
+		// Obtener la habitación usando GetRoomByID
+		room, err := s.habitacionRepo.GetRoomByID(resRoom.HabitacionID)
 		if err != nil {
 			// Log error pero continuar
 			fmt.Printf("Error al obtener habitación %d: %v\n", resRoom.HabitacionID, err)
@@ -628,7 +628,7 @@ func (s *ReservaService) VerifyReservation(reservationID int) (*ReservationVerif
 			RoomID:       resRoom.HabitacionID,
 			RoomNumber:   room.Numero,
 			RoomName:     room.Nombre,
-			RoomType:     room.TipoHabitacionID.String(), // Convertir a string, puede requerir lookup
+			RoomType:     room.TipoHabitacion.Titulo, // Usar el título del tipo de habitación
 			CheckInDate:  resRoom.FechaEntrada,
 			CheckOutDate: resRoom.FechaSalida,
 			Price:        resRoom.Precio,

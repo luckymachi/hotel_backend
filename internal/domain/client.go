@@ -14,6 +14,8 @@ type ClientRepository interface {
 	Create(personID int, captureChannel string, captureStatus string, travelsWithChildren int) (int, error)
 	// GetPersonEmailByClientID obtiene el email de la persona asociada a un cliente
 	GetPersonEmailByClientID(clientID int) (string, error)
+	// GetByID obtiene un cliente por su ID
+	GetByID(clientID int) (*Client, error)
 }
 
 // Constantes para los valores del enum y campos relacionados
