@@ -1,0 +1,419 @@
+create table campanha
+(
+    campanhaid  integer default nextval('"campaña_campanhaid_seq"'::regclass) not null
+        primary key,
+    nombre      varchar(100)                                                  not null,
+    descripcion varchar(300)                                                  not null,
+    fechainicio timestamp                                                     not null,
+    fechafin    timestamp                                                     not null,
+    estado      integer                                                       not null
+);
+
+alter table campanha
+    owner to postgres;
+
+create table publicacion
+(
+    publicidadid        serial
+        primary key,
+    titulo              varchar(100) not null,
+    contenido           varchar(250) not null,
+    cantidadlikes       integer      not null,
+    cantidadcomentarios integer      not null,
+    cantidadreacciones  integer      not null,
+    fechapublicacion    timestamp    not null,
+    fecharegistro       timestamp    not null,
+    estado              integer      not null,
+    campañaid           integer
+        references campanha
+);
+
+alter table publicacion
+    owner to postgres;
+
+create table redsocial
+(
+    redsocialid serial
+        primary key,
+    nombre      varchar(100) not null,
+    apikey      varchar(200) not null,
+    estado      integer      not null
+);
+
+alter table redsocial
+    owner to postgres;
+
+create table alerta
+(
+    alertaid      serial
+        primary key,
+    mensaje       varchar(100) not null,
+    fueleido      boolean      not null,
+    fechalectura  timestamp    not null,
+    fecharegistro timestamp    not null,
+    tipoalerta    integer      not null,
+    estado        integer      not null
+);
+
+alter table alerta
+    owner to postgres;
+
+create table serviciohotel
+(
+    serviciohotelid serial
+        primary key,
+    titulo          varchar(100)                        not null,
+    tituloboton     varchar(200)                        not null,
+    descripcion     varchar(200)                        not null,
+    principalurl    varchar(500)                        not null,
+    orden           integer                             not null,
+    activo          boolean   default true              not null,
+    fechacreacion   timestamp default CURRENT_TIMESTAMP not null
+);
+
+alter table serviciohotel
+    owner to postgres;
+
+create table evento
+(
+    eventoid         serial
+        primary key,
+    titulo           varchar(100)          not null,
+    tituloboton      varchar(200)          not null,
+    descripcion      varchar(200)          not null,
+    fecha            timestamp             not null,
+    fechainicio      timestamp             not null,
+    fechafin         timestamp             not null,
+    ubicacion        varchar(200)          not null,
+    imagenportadaurl varchar(500)          not null,
+    imagenbannerurl  varchar(500)          not null,
+    capacidadmaxima  integer               not null,
+    precioentrada    double precision      not null,
+    requierereserva  boolean default false not null,
+    activo           boolean default true  not null,
+    fechacreacion    timestamp             not null
+);
+
+alter table evento
+    owner to postgres;
+
+create table instalacionesdelhotel
+(
+    facilityid          serial
+        primary key,
+    nombre              varchar(100)          not null,
+    categoria           categoriainstalacion  not null,
+    horario             varchar(100)          not null,
+    descripcion         text                  not null,
+    ubicacion           varchar(100)          not null,
+    piso                integer               not null,
+    imagenprincipalurl  varchar(500)          not null,
+    capacidad           integer               not null,
+    requierereservacion boolean default false not null,
+    costoadicional      double precision      not null,
+    activo              boolean default true  not null,
+    fechacreacion       timestamp             not null
+);
+
+alter table instalacionesdelhotel
+    owner to postgres;
+
+create table formulariocontacto
+(
+    formularioid   serial
+        primary key,
+    usuarioid      integer,
+    nombre         varchar(100)            not null,
+    email          varchar(150)            not null,
+    telefono       varchar(20)             not null,
+    mensaje        text                    not null,
+    estado         estadoformulario        not null,
+    fecharespuesta timestamp,
+    fechaenvio     timestamp default now() not null
+);
+
+alter table formulariocontacto
+    owner to postgres;
+
+create table contenidopromocional
+(
+    contenidoid    serial
+        primary key,
+    nombre         varchar(150)      not null,
+    titulo         varchar(200)      not null,
+    descripcion    text              not null,
+    enlacedestino  varchar(500)      not null,
+    textoboton     varchar(50)       not null,
+    fechainicio    timestamp         not null,
+    fechafin       timestamp         not null,
+    vecesvisto     integer default 0 not null,
+    vecesclickeado integer default 0 not null
+);
+
+alter table contenidopromocional
+    owner to postgres;
+
+create table multimedia
+(
+    mediaid         serial
+        primary key,
+    tipomedia       varchar(10)      not null,
+    urlarchivo      varchar(50)      not null,
+    formato         varchar(10)      not null,
+    tamanhoarchivo  double precision not null,
+    serviciohotelid integer
+        references serviciohotel,
+    eventoid        integer
+        references evento,
+    facilityid      integer
+        references instalacionesdelhotel,
+    formularioid    integer
+        references formulariocontacto,
+    contenidoid     integer
+        references contenidopromocional
+);
+
+alter table multimedia
+    owner to postgres;
+
+create table notificacion
+(
+    notificacionid   serial
+        primary key,
+    mensaje          varchar(100) not null,
+    fechaenvio       timestamp    not null,
+    tiponotificacion varchar(20)  not null,
+    estado           integer      not null
+);
+
+alter table notificacion
+    owner to postgres;
+
+create table tipohabitacion
+(
+    tipohabitacionid serial
+        primary key,
+    titulo           varchar(50)      not null,
+    descripcion      text             not null,
+    capacidadadultos integer          not null,
+    capacidadninhos  integer          not null,
+    cantidadcamas    integer          not null,
+    precio           double precision not null
+);
+
+alter table tipohabitacion
+    owner to postgres;
+
+create table habitacion
+(
+    habitacionid       serial
+        primary key,
+    nombre             varchar(50)      not null,
+    capacidad          integer          not null,
+    numero             varchar(20)      not null,
+    estado             estadohabitacion not null,
+    tipohabitacionid   integer
+        references tipohabitacion,
+    descripciongeneral text             not null,
+    mediaid            integer
+        references multimedia
+);
+
+alter table habitacion
+    owner to postgres;
+
+create table servicio
+(
+    servicioid serial
+        primary key,
+    nombre     varchar(50)      not null,
+    precio     double precision not null
+);
+
+alter table servicio
+    owner to postgres;
+
+create table reserva
+(
+    reservaid         serial
+        primary key,
+    cantidadadultos   integer          not null,
+    cantidadniños     integer          not null,
+    estado            estadoreserva    not null,
+    clienteid         varchar(50)      not null,
+    subtotal          double precision not null,
+    descuento         double precision not null,
+    fechaconfirmacion timestamp        not null
+);
+
+alter table reserva
+    owner to postgres;
+
+create table pago
+(
+    pagoid     serial
+        primary key,
+    monto      double precision not null,
+    fecha      timestamp        not null,
+    metodopago metodopago       not null,
+    estado     estadopago       not null,
+    reservaid  integer
+        references reserva
+);
+
+alter table pago
+    owner to postgres;
+
+create table reservaxhabitacion
+(
+    reservaid    integer          not null
+        references reserva,
+    habitacionid integer          not null
+        references habitacion,
+    precio       double precision not null,
+    fechaentrada timestamp        not null,
+    fechasalida  timestamp        not null,
+    estado       integer          not null,
+    primary key (habitacionid, reservaid)
+);
+
+alter table reservaxhabitacion
+    owner to postgres;
+
+create table reservaxservicio
+(
+    reservaid  integer   not null
+        references reserva,
+    servicioid integer   not null
+        references servicio,
+    fechaincio timestamp not null,
+    fechafin   timestamp not null,
+    estado     integer   not null,
+    primary key (servicioid, reservaid)
+);
+
+alter table reservaxservicio
+    owner to postgres;
+
+create table post
+(
+    postid              serial
+        primary key,
+    titulo              varchar(100)                        not null,
+    contenido           varchar(100)                        not null,
+    cantidadlikes       integer                             not null,
+    cantidadcomentarios integer                             not null,
+    cantidadreacciones  integer                             not null,
+    fechapublicacion    timestamp                           not null,
+    fecharegistro       timestamp default CURRENT_TIMESTAMP not null,
+    campañaid           integer
+        references campanha,
+    redsocialid         integer
+        references redsocial
+);
+
+alter table post
+    owner to postgres;
+
+create table persona
+(
+    personaid        serial
+        primary key,
+    nombre           varchar(100)           not null,
+    primerapellido   varchar(100)           not null,
+    segundoapellido  varchar(100),
+    numerodocumento  varchar(10)            not null,
+    genero           varchar(10)            not null,
+    correo           varchar(100)           not null
+        unique,
+    telefono_1       varchar(20)            not null,
+    telefono_2       varchar(20),
+    ciudadreferencia varchar(50),
+    paisreferencia   varchar(50),
+    activo           boolean   default true not null,
+    fechacreacion    timestamp default CURRENT_TIMESTAMP
+);
+
+alter table persona
+    owner to postgres;
+
+create table cliente
+(
+    clienteid            serial
+        primary key,
+    canalcap             canalcaptura              not null,
+    viajaconniños        integer      default 0    not null,
+    temporadainteres     varchar(100) default '-'::character varying,
+    fechaultimamodestado timestamp    default CURRENT_TIMESTAMP,
+    fecharegistro        timestamp    default CURRENT_TIMESTAMP,
+    activo               boolean      default true not null,
+    estadocap            estadocaptura             not null,
+    personaid            integer
+        references persona,
+    tipocl               tipocliente               not null
+);
+
+alter table cliente
+    owner to postgres;
+
+create table interaccion
+(
+    interaccionid      serial
+        primary key,
+    detalle            varchar(400)     not null,
+    fechapublicacion   timestamp        not null,
+    estado             integer          not null,
+    fechaanalisis      timestamp        not null,
+    userredsocial      varchar(250)     not null,
+    paisuserredsocial  varchar(250)     not null,
+    comentariooriginal varchar(400)     not null,
+    alertaid           integer
+        unique
+        references alerta,
+    redsocialid        integer
+        references redsocial
+        constraint fk_int_redsocial
+            references redsocial,
+    rating             double precision not null,
+    sentimiento        varchar(50)      not null,
+    clienteid          integer          not null
+        constraint fk_clienteid
+            references cliente
+);
+
+alter table interaccion
+    owner to postgres;
+
+create table mensaje
+(
+    mensajeid     serial
+        primary key,
+    contenido     varchar(100)                        not null,
+    fecharegistro timestamp default CURRENT_TIMESTAMP not null,
+    clienteid     integer
+        references cliente
+);
+
+alter table mensaje
+    owner to postgres;
+
+create table conversation_history
+(
+    id         varchar(100)                        not null
+        primary key,
+    cliente_id integer
+        references cliente,
+    messages   jsonb                               not null,
+    created_at timestamp default CURRENT_TIMESTAMP not null,
+    updated_at timestamp default CURRENT_TIMESTAMP not null
+);
+
+alter table conversation_history
+    owner to postgres;
+
+create index idx_conversation_cliente
+    on conversation_history (cliente_id);
+
+create index idx_conversation_updated
+    on conversation_history (updated_at desc);
+
