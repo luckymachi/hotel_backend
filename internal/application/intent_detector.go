@@ -156,36 +156,50 @@ func (d *IntentDetector) DetectAndProcess(message string, reservation *domain.Re
 	}
 
 	// 7. Detectar confirmación para crear reserva
-	if d.isConfirmation(message) && reservation != nil && reservation.PersonalData != nil {
-		log.Printf("[IntentDetector] Confirmation detected, creating reservation")
+	if d.isConfirmation(message) {
+		log.Printf("[IntentDetector] Confirmation detected")
 
-		// Crear la reserva automáticamente
-		reservaData := map[string]interface{}{
-			"fechaEntrada":     reservation.FechaEntrada,
-			"fechaSalida":      reservation.FechaSalida,
-			"cantidadAdultos":  reservation.CantidadAdultos,
-			"cantidadNinhos":   reservation.CantidadNinhos,
-			"tipoHabitacionId": reservation.TipoHabitacionID,
-			"personalData":     reservation.PersonalData,
-		}
-
-		args, _ := json.Marshal(reservaData)
-		log.Printf("[IntentDetector] Ejecutando create_reservation con datos: %s", string(args))
-		result, err := d.reservationTools.CreateReservation(string(args))
-
-		if err != nil {
-			log.Printf("[IntentDetector] ERROR en create_reservation: %v", err)
+		// Verificar que tenemos todos los datos necesarios
+		if reservation == nil {
+			log.Printf("[IntentDetector] ERROR: reservation state is nil")
 		} else {
-			log.Printf("[IntentDetector] create_reservation exitoso: %s", result)
+			log.Printf("[IntentDetector] Reservation state - FechaEntrada: %v, FechaSalida: %v, Adultos: %v, TipoHabitacion: %v, PersonalData: %v",
+				reservation.FechaEntrada, reservation.FechaSalida, reservation.CantidadAdultos, reservation.TipoHabitacionID, reservation.PersonalData != nil)
+
+			if reservation.PersonalData != nil {
+				log.Printf("[IntentDetector] Personal data present - creating reservation")
+
+				// Crear la reserva automáticamente
+				reservaData := map[string]interface{}{
+					"fechaEntrada":     reservation.FechaEntrada,
+					"fechaSalida":      reservation.FechaSalida,
+					"cantidadAdultos":  reservation.CantidadAdultos,
+					"cantidadNinhos":   reservation.CantidadNinhos,
+					"tipoHabitacionId": reservation.TipoHabitacionID,
+					"personalData":     reservation.PersonalData,
+				}
+
+				args, _ := json.Marshal(reservaData)
+				log.Printf("[IntentDetector] Ejecutando create_reservation con datos: %s", string(args))
+				result, err := d.reservationTools.CreateReservation(string(args))
+
+				if err != nil {
+					log.Printf("[IntentDetector] ERROR en create_reservation: %v", err)
+				} else {
+					log.Printf("[IntentDetector] create_reservation exitoso: %s", result)
+				}
+
+				detected.ToolResults = append(detected.ToolResults, ToolResult{
+					ToolName: "create_reservation",
+					Result:   result,
+					Error:    err,
+				})
+
+				detected.Intent = "create_reservation"
+			} else {
+				log.Printf("[IntentDetector] WARNING: PersonalData is nil, cannot create reservation")
+			}
 		}
-
-		detected.ToolResults = append(detected.ToolResults, ToolResult{
-			ToolName: "create_reservation",
-			Result:   result,
-			Error:    err,
-		})
-
-		detected.Intent = "create_reservation"
 	}
 
 	log.Printf("[IntentDetector] Detected intent: %s, executed %d tools", detected.Intent, len(detected.ToolResults))
