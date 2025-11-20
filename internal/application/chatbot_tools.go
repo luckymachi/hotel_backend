@@ -180,12 +180,12 @@ func (rt *ReservationTools) CreateReservation(args string) (string, error) {
 	log.Printf("CreateReservation called with args: %s", args)
 
 	var input struct {
-		FechaEntrada     string                      `json:"fechaEntrada"`
-		FechaSalida      string                      `json:"fechaSalida"`
-		CantidadAdultos  int                         `json:"cantidadAdultos"`
-		CantidadNinhos   int                         `json:"cantidadNinhos"`
-		TipoHabitacionID int                         `json:"tipoHabitacionId"`
-		PersonalData     domain.PersonalDataInput    `json:"personalData"`
+		FechaEntrada     string                   `json:"fechaEntrada"`
+		FechaSalida      string                   `json:"fechaSalida"`
+		CantidadAdultos  int                      `json:"cantidadAdultos"`
+		CantidadNinhos   int                      `json:"cantidadNinhos"`
+		TipoHabitacionID int                      `json:"tipoHabitacionId"`
+		PersonalData     domain.PersonalDataInput `json:"personalData"`
 	}
 
 	if err := json.Unmarshal([]byte(args), &input); err != nil {
@@ -250,8 +250,8 @@ func (rt *ReservationTools) CreateReservation(args string) (string, error) {
 		Email:            input.PersonalData.Correo,
 		Phone1:           input.PersonalData.Telefono1,
 		Phone2:           input.PersonalData.Telefono2,
-		ReferenceCity:    input.PersonalData.CiudadReferencia,
-		ReferenceCountry: input.PersonalData.PaisReferencia,
+		ReferenceCity:    *input.PersonalData.CiudadReferencia,
+		ReferenceCountry: *input.PersonalData.PaisReferencia,
 	}
 
 	// Crear la reserva
