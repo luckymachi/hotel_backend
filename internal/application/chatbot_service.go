@@ -13,12 +13,13 @@ import (
 )
 
 type ChatbotService struct {
-	repo           domain.ChatbotRepository
-	openaiClient   *openai.Client
-	habitacionRepo domain.HabitacionRepository
-	tavilyClient   *tavily.Client
-	searchService  *SearchService
-	location       string
+	repo             domain.ChatbotRepository
+	openaiClient     *openai.Client
+	habitacionRepo   domain.HabitacionRepository
+	tavilyClient     *tavily.Client
+	searchService    *SearchService
+	location         string
+	reservationTools *ReservationTools
 }
 
 func NewChatbotService(
@@ -28,14 +29,21 @@ func NewChatbotService(
 	tavilyClient *tavily.Client,
 	location string,
 	searchService *SearchService,
+	reservaService *ReservaService,
+	personRepo domain.PersonRepository,
+	clientRepo domain.ClientRepository,
 ) *ChatbotService {
+	// Crear las herramientas de reserva
+	reservationTools := NewReservationTools(habitacionRepo, reservaService, personRepo, clientRepo)
+
 	return &ChatbotService{
-		repo:           repo,
-		openaiClient:   openaiClient,
-		habitacionRepo: habitacionRepo,
-		tavilyClient:   tavilyClient,
-		searchService:  searchService,
-		location:       location,
+		repo:             repo,
+		openaiClient:     openaiClient,
+		habitacionRepo:   habitacionRepo,
+		tavilyClient:     tavilyClient,
+		searchService:    searchService,
+		location:         location,
+		reservationTools: reservationTools,
 	}
 }
 
@@ -53,13 +61,17 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 
 	if conversation == nil {
 		conversation = &domain.ConversationHistory{
-			ID:        uuid.New().String(),
-			ClienteID: req.ClienteID,
-			Messages:  []domain.ChatMessage{},
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			ID:                    uuid.New().String(),
+			ClienteID:             req.ClienteID,
+			Messages:              []domain.ChatMessage{},
+			CreatedAt:             time.Now(),
+			UpdatedAt:             time.Now(),
+			ReservationInProgress: nil,
 		}
 	}
+
+	// 1.5 Detectar intención de reserva y actualizar estado
+	conversation = s.updateReservationState(conversation, req.Message)
 
 	// 2. Agregar mensaje del usuario
 	conversation.Messages = append(conversation.Messages, domain.ChatMessage{
@@ -111,8 +123,10 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 		return nil, fmt.Errorf("error getting hotel info: %w", err)
 	}
 
-	// 4. Preparar contexto con información real (incluye resultados web si hay)
-	systemPrompt := s.buildSystemPrompt(req.Context, hotelInfo+webContext)
+	// 4. Preparar contexto con información real (incluye resultados web y herramientas)
+	toolsInfo := s.reservationTools.GetToolDescriptions()
+	reservationContext := s.buildReservationContext(conversation.ReservationInProgress)
+	systemPrompt := s.buildSystemPrompt(req.Context, hotelInfo+webContext+toolsInfo+reservationContext)
 
 	// 5. Construir mensajes para OpenAI/Groq
 	messages := []openai.Message{
@@ -151,10 +165,78 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 
 	assistantMessage := openaiResp.Choices[0].Message.Content
 
-	// 7. Agregar respuesta del asistente
+	// 6.5 Detectar y ejecutar herramientas si es necesario
+	finalMessage := assistantMessage
+	toolExecuted := false
+	var toolErr error
+
+	// Intentar ejecutar herramientas (máximo 3 intentos para evitar loops)
+	maxToolIterations := 3
+	for i := 0; i < maxToolIterations; i++ {
+		var executed bool
+		finalMessage, executed, toolErr = s.detectAndExecuteTools(finalMessage)
+
+		if toolErr != nil {
+			// Si hay error en la herramienta, agregar el error al mensaje
+			finalMessage = fmt.Sprintf("%s\n\n[ERROR]: %s", finalMessage, toolErr.Error())
+			log.Printf("Error ejecutando herramienta: %v", toolErr)
+			break
+		}
+
+		if !executed {
+			break
+		}
+
+		toolExecuted = true
+
+		// Si se ejecutó una herramienta, hacer otra llamada al LLM con el resultado
+		conversation.Messages = append(conversation.Messages, domain.ChatMessage{
+			Role:    "assistant",
+			Content: finalMessage,
+		})
+
+		// Construir mensajes para segunda llamada
+		messages = []openai.Message{
+			{Role: "system", Content: systemPrompt},
+		}
+
+		// Agregar últimos mensajes
+		startIdx := 0
+		if len(conversation.Messages) > 10 {
+			startIdx = len(conversation.Messages) - 10
+		}
+
+		for _, msg := range conversation.Messages[startIdx:] {
+			messages = append(messages, openai.Message{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+
+		// Segunda llamada al LLM
+		openaiReq = openai.ChatCompletionRequest{
+			Model:       "llama-3.1-8b-instant",
+			Messages:    messages,
+			Temperature: 0.7,
+			MaxTokens:   500,
+		}
+
+		openaiResp, err = s.openaiClient.CreateChatCompletion(openaiReq)
+		if err != nil {
+			return nil, fmt.Errorf("error calling OpenAI (second call): %w", err)
+		}
+
+		if len(openaiResp.Choices) == 0 {
+			return nil, fmt.Errorf("no response from OpenAI (second call)")
+		}
+
+		finalMessage = openaiResp.Choices[0].Message.Content
+	}
+
+	// 7. Agregar respuesta final del asistente
 	conversation.Messages = append(conversation.Messages, domain.ChatMessage{
 		Role:    "assistant",
-		Content: assistantMessage,
+		Content: finalMessage,
 	})
 
 	// 8. Guardar conversación
@@ -175,14 +257,17 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 	}
 
 	// 10. Analizar si requiere intervención humana
-	requiresHuman := s.detectHumanRequired(req.Message, assistantMessage)
+	requiresHuman := s.detectHumanRequired(req.Message, finalMessage)
 
 	// 11. Generar acciones sugeridas
-	suggestedActions := s.generateSuggestedActions(req.Message, assistantMessage)
+	suggestedActions := s.generateSuggestedActions(req.Message, finalMessage)
 
 	sources := []string{"hotel"}
 	if useWeb {
 		sources = append(sources, "web")
+	}
+	if toolExecuted {
+		sources = append(sources, "tools")
 	}
 
 	metadata := map[string]interface{}{
@@ -194,12 +279,29 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 		metadata["webResults"] = tavilyResp
 	}
 
+	// 12. Verificar si se creó una reserva
+	var reservaCreada *int
+	if strings.Contains(finalMessage, "Reserva creada exitosamente") {
+		// Intentar extraer el ID de la reserva del mensaje
+		// El formato es "Número de Reserva: #ID"
+		if strings.Contains(finalMessage, "Número de Reserva: #") {
+			var id int
+			if _, err := fmt.Sscanf(finalMessage, "Número de Reserva: #%d", &id); err == nil {
+				reservaCreada = &id
+				// Limpiar el estado de reserva en progreso
+				conversation.ReservationInProgress = nil
+			}
+		}
+	}
+
 	return &domain.ChatResponse{
-		Message:          assistantMessage,
-		ConversationID:   conversation.ID,
-		SuggestedActions: suggestedActions,
-		RequiresHuman:    requiresHuman,
-		Metadata:         metadata,
+		Message:              finalMessage,
+		ConversationID:       conversation.ID,
+		SuggestedActions:     suggestedActions,
+		RequiresHuman:        requiresHuman,
+		Metadata:             metadata,
+		ReservationInProgress: conversation.ReservationInProgress,
+		ReservationCreated:   reservaCreada,
 	}, nil
 }
 
@@ -363,35 +465,49 @@ func (s *ChatbotService) getHotelInfo(req domain.ChatRequest) (string, error) {
 }
 
 func (s *ChatbotService) buildSystemPrompt(context *domain.ChatContext, hotelInfo string) string {
-	basePrompt := `Eres un asistente virtual amable y profesional de un hotel en Lima, Perú. 
+	basePrompt := `Eres un asistente virtual amable y profesional de un hotel en Lima, Perú.
 
 INSTRUCCIONES CRÍTICAS:
-- Si te preguntan sobre información externa (clima, restaurantes, atracciones), 
+- Si te preguntan sobre información externa (clima, restaurantes, atracciones),
   usarás la información proporcionada en "INFORMACIÓN DE LA WEB".
 - Si no hay información web disponible, indica que no tienes esos datos en tiempo real.
 - Para información del hotel, usa siempre los datos reales proporcionados.
 - Sé amable, profesional y conciso.
 - Responde en español.
+- Puedes ejecutar acciones usando las HERRAMIENTAS DISPONIBLES cuando sea necesario.
 
 Tu objetivo es ayudar a los huéspedes con:
 - Información sobre habitaciones (SOLO las que aparecen en la información real)
-- Proceso de reservas
+- Proceso de reservas COMPLETO (puedes crear reservas usando las herramientas)
 - Políticas del hotel (check-in 14:00, check-out 12:00)
 - Tarifas reales del sistema
+
+FLUJO DE RESERVAS:
+Cuando un usuario quiera hacer una reserva, sigue estos pasos:
+1. Pregunta fechas de entrada y salida
+2. Pregunta cantidad de adultos y niños
+3. USA LA HERRAMIENTA 'check_availability' para verificar disponibilidad
+4. Muestra las opciones disponibles usando 'get_room_types' si es necesario
+5. Pregunta qué tipo de habitación prefiere
+6. USA LA HERRAMIENTA 'calculate_price' para calcular el precio total
+7. Pregunta los datos personales: nombre, apellidos, documento, email, teléfono
+8. USA LA HERRAMIENTA 'create_reservation' para crear la reserva con TODOS los datos
+9. Confirma que la reserva fue creada exitosamente
 
 POLÍTICAS DEL HOTEL:
 - Check-in: 14:00 hrs
 - Check-out: 12:00 hrs
 - WiFi gratuito
-- Desayuno buffet incluido (si aplica)
+- Desayuno buffet incluido
 - Recepción 24 horas
 
 IMPORTANTE:
 - Siempre sé cortés y profesional
 - Si no sabes algo, admítelo y ofrece transferir a un agente humano
 - Proporciona información clara y concisa basada en los datos reales
-- Si el usuario quiere hacer una reserva, guíalo paso a paso
+- Cuando uses una herramienta, explica al usuario qué estás haciendo
 - Responde en español a menos que el usuario escriba en otro idioma
+- NUNCA inventes información, usa siempre las herramientas o la información proporcionada
 
 `
 
@@ -478,4 +594,165 @@ func (s *ChatbotService) GetConversationHistory(conversationID string) (*domain.
 
 func (s *ChatbotService) GetClientConversations(clienteID int) ([]domain.ConversationHistory, error) {
 	return s.repo.GetClientConversations(clienteID)
+}
+
+// detectAndExecuteTools detecta si el mensaje del asistente contiene llamadas a herramientas y las ejecuta
+func (s *ChatbotService) detectAndExecuteTools(message string) (string, bool, error) {
+	// Buscar el patrón [USE_TOOL: nombre_herramienta]
+	toolStartIdx := strings.Index(message, "[USE_TOOL:")
+	if toolStartIdx == -1 {
+		return message, false, nil
+	}
+
+	toolEndIdx := strings.Index(message, "[END_TOOL]")
+	if toolEndIdx == -1 {
+		return message, false, fmt.Errorf("tool call mal formateada: falta [END_TOOL]")
+	}
+
+	// Extraer el contenido del tool call
+	toolCall := message[toolStartIdx:toolEndIdx+len("[END_TOOL]")]
+
+	// Extraer el nombre de la herramienta
+	toolNameStart := toolStartIdx + len("[USE_TOOL:")
+	toolNameEnd := strings.Index(message[toolNameStart:], "]")
+	if toolNameEnd == -1 {
+		return message, false, fmt.Errorf("tool call mal formateada: falta ] después del nombre")
+	}
+
+	toolName := strings.TrimSpace(message[toolNameStart : toolNameStart+toolNameEnd])
+
+	// Extraer los argumentos (el JSON entre el nombre y [END_TOOL])
+	argsStart := toolNameStart + toolNameEnd + 1
+	argsEnd := toolEndIdx
+	args := strings.TrimSpace(message[argsStart:argsEnd])
+
+	log.Printf("Executing tool: %s with args: %s", toolName, args)
+
+	// Ejecutar la herramienta
+	result, err := s.reservationTools.ExecuteTool(toolName, args)
+	if err != nil {
+		return message, true, fmt.Errorf("error ejecutando herramienta %s: %w", toolName, err)
+	}
+
+	log.Printf("Tool result: %s", result)
+
+	// Reemplazar el tool call con el resultado
+	messageWithResult := strings.Replace(message, toolCall, "", 1)
+	messageWithResult += fmt.Sprintf("\n\n[RESULTADO DE %s]:\n%s\n[FIN RESULTADO]\n", strings.ToUpper(toolName), result)
+
+	return messageWithResult, true, nil
+}
+
+// updateReservationState actualiza el estado de la reserva en progreso basado en el mensaje del usuario
+func (s *ChatbotService) updateReservationState(conversation *domain.ConversationHistory, userMessage string) *domain.ConversationHistory {
+	msgLower := strings.ToLower(userMessage)
+
+	// Detectar intención de iniciar una reserva
+	reservaKeywords := []string{
+		"reservar", "reserva", "reservación",
+		"habitación", "habitacion", "cuarto",
+		"quiero hospedarme", "necesito una habitación",
+		"book", "booking",
+	}
+
+	isReservationIntent := false
+	for _, keyword := range reservaKeywords {
+		if strings.Contains(msgLower, keyword) {
+			isReservationIntent = true
+			break
+		}
+	}
+
+	// Si hay intención de reserva y no hay una en progreso, iniciar una nueva
+	if isReservationIntent && conversation.ReservationInProgress == nil {
+		conversation.ReservationInProgress = &domain.ReservationInProgress{
+			Step: "dates",
+		}
+		log.Printf("Nueva reserva iniciada en paso: dates")
+	}
+
+	// Si hay una reserva en progreso, intentar extraer información del mensaje
+	if conversation.ReservationInProgress != nil {
+		s.extractReservationData(conversation.ReservationInProgress, userMessage)
+	}
+
+	return conversation
+}
+
+// extractReservationData intenta extraer datos de reserva del mensaje del usuario
+func (s *ChatbotService) extractReservationData(reservation *domain.ReservationInProgress, message string) {
+	// Intentar extraer fechas (formato YYYY-MM-DD o DD/MM/YYYY)
+	// Esto es básico, se podría mejorar con NLP más sofisticado
+
+	// Intentar extraer cantidad de adultos
+	if strings.Contains(strings.ToLower(message), "adulto") {
+		// Buscar números en el mensaje
+		var num int
+		if _, err := fmt.Sscanf(message, "%d", &num); err == nil && num > 0 {
+			reservation.CantidadAdultos = &num
+			log.Printf("Cantidad de adultos extraída: %d", num)
+		}
+	}
+
+	// Intentar extraer cantidad de niños
+	if strings.Contains(strings.ToLower(message), "niño") || strings.Contains(strings.ToLower(message), "niños") {
+		var num int
+		if _, err := fmt.Sscanf(message, "%d", &num); err == nil {
+			reservation.CantidadNinhos = &num
+			log.Printf("Cantidad de niños extraída: %d", num)
+		}
+	}
+
+	// Actualizar el paso basado en la información disponible
+	if reservation.FechaEntrada != nil && reservation.FechaSalida != nil && reservation.Step == "dates" {
+		reservation.Step = "guests"
+	}
+	if reservation.CantidadAdultos != nil && reservation.Step == "guests" {
+		reservation.Step = "room_type"
+	}
+	if reservation.TipoHabitacionID != nil && reservation.Step == "room_type" {
+		reservation.Step = "personal_data"
+	}
+	if reservation.PersonalData != nil && reservation.Step == "personal_data" {
+		reservation.Step = "confirmation"
+	}
+}
+
+// buildReservationContext construye el contexto de una reserva en progreso
+func (s *ChatbotService) buildReservationContext(reservation *domain.ReservationInProgress) string {
+	if reservation == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	sb.WriteString("\n=== RESERVA EN PROGRESO ===\n")
+	sb.WriteString(fmt.Sprintf("Paso actual: %s\n", reservation.Step))
+
+	if reservation.FechaEntrada != nil {
+		sb.WriteString(fmt.Sprintf("Fecha de entrada: %s\n", *reservation.FechaEntrada))
+	}
+	if reservation.FechaSalida != nil {
+		sb.WriteString(fmt.Sprintf("Fecha de salida: %s\n", *reservation.FechaSalida))
+	}
+	if reservation.CantidadAdultos != nil {
+		sb.WriteString(fmt.Sprintf("Cantidad de adultos: %d\n", *reservation.CantidadAdultos))
+	}
+	if reservation.CantidadNinhos != nil {
+		sb.WriteString(fmt.Sprintf("Cantidad de niños: %d\n", *reservation.CantidadNinhos))
+	}
+	if reservation.TipoHabitacionID != nil {
+		sb.WriteString(fmt.Sprintf("Tipo de habitación seleccionado: ID %d\n", *reservation.TipoHabitacionID))
+	}
+	if reservation.PrecioCalculado != nil {
+		sb.WriteString(fmt.Sprintf("Precio calculado: S/%.2f\n", *reservation.PrecioCalculado))
+	}
+	if reservation.PersonalData != nil {
+		sb.WriteString("Datos personales proporcionados\n")
+	}
+
+	sb.WriteString("\nRecuerda continuar el proceso de reserva según el paso actual.\n")
+	sb.WriteString("=== FIN RESERVA EN PROGRESO ===\n\n")
+
+	return sb.String()
 }
