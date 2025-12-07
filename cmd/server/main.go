@@ -156,6 +156,9 @@ func main() {
 	// Rutas de servicios
 	servicios := api.Group("/servicios")
 	servicios.Get("/all", servicioHandler.GetAllServices)
+	servicios.Post("/", servicioHandler.CreateService)
+	servicios.Put("/:id", servicioHandler.UpdateService)
+	servicios.Delete("/:id", servicioHandler.DeleteService)
 
 	// Rutas del chatbot - NUEVO
 	chatbot := api.Group("/chatbot")
