@@ -441,13 +441,13 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 	}
 
 	return &domain.ChatResponse{
-		Message:              finalMessage,
-		ConversationID:       conversation.ID,
-		SuggestedActions:     suggestedActions,
-		RequiresHuman:        requiresHuman,
-		Metadata:             metadata,
+		Message:               finalMessage,
+		ConversationID:        conversation.ID,
+		SuggestedActions:      suggestedActions,
+		RequiresHuman:         requiresHuman,
+		Metadata:              metadata,
 		ReservationInProgress: conversation.ReservationInProgress,
-		ReservationCreated:   reservaCreada,
+		ReservationCreated:    reservaCreada,
 	}, nil
 }
 
@@ -636,9 +636,16 @@ Cuando un usuario quiera hacer una reserva, sigue estos pasos:
 4. Muestra las opciones disponibles usando 'get_room_types' si es necesario
 5. Pregunta qué tipo de habitación prefiere
 6. USA LA HERRAMIENTA 'calculate_price' para calcular el precio total
-7. Pregunta los datos personales: nombre, apellidos, documento, email, teléfono
-8. USA LA HERRAMIENTA 'create_reservation' para crear la reserva con TODOS los datos
-9. Confirma que la reserva fue creada exitosamente
+7. (OPCIONAL) Pregunta el correo electrónico del cliente para seguimiento
+8. USA LA HERRAMIENTA 'generate_booking_link' con la información recopilada
+9. Proporciona el enlace al usuario explicando que completará sus datos en el formulario
+
+IMPORTANTE:
+- NO intentes recopilar nombres completos o datos personales detallados
+- El correo es OPCIONAL, solo para seguimiento CRM
+- El usuario completará TODOS sus datos en el formulario web
+- El formulario está diseñado para manejar múltiples huéspedes correctamente
+- Solo recopila: fechas, cantidad de adultos, cantidad de niños, tipo de habitación, y opcionalmente email
 
 POLÍTICAS DEL HOTEL:
 - Check-in: 14:00 hrs
@@ -778,7 +785,7 @@ func (s *ChatbotService) detectAndExecuteTools(message string) (string, bool, er
 	}
 
 	// Extraer el contenido del tool call
-	toolCall := message[toolStartIdx:toolEndIdx+len("[END_TOOL]")]
+	toolCall := message[toolStartIdx : toolEndIdx+len("[END_TOOL]")]
 
 	// Extraer el nombre de la herramienta
 	toolNameStart := toolStartIdx + len("[USE_TOOL:")

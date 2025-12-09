@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -61,6 +63,11 @@ func (rt *ReservationTools) GetAvailableTools() []Tool {
 			Name:        "create_reservation",
 			Description: "Crea una nueva reserva. Args: JSON con todos los datos de la reserva incluyendo fechas, habitación, datos personales del cliente",
 			Execute:     rt.CreateReservation,
+		},
+		{
+			Name:        "generate_booking_link",
+			Description: "Genera un enlace de reserva pre-llenado. Args: {\"fechaEntrada\":\"YYYY-MM-DD\",\"fechaSalida\":\"YYYY-MM-DD\",\"cantidadAdultos\":INT,\"cantidadNinhos\":INT,\"tipoHabitacionId\":INT,\"email\":\"opcional@email.com\"}",
+			Execute:     rt.GenerateBookingLink,
 		},
 	}
 }
@@ -338,6 +345,119 @@ func (rt *ReservationTools) CreateReservation(args string) (string, error) {
 	return result, nil
 }
 
+func (rt *ReservationTools) GenerateBookingLink(args string) (string, error) {
+	log.Printf("GenerateBookingLink called with args: %s", args)
+
+	var input struct {
+		FechaEntrada     string `json:"fechaEntrada"`
+		FechaSalida      string `json:"fechaSalida"`
+		CantidadAdultos  int    `json:"cantidadAdultos"`
+		CantidadNinhos   int    `json:"cantidadNinhos"`
+		TipoHabitacionID int    `json:"tipoHabitacionId"`
+		Email            string `json:"email,omitempty"` // Optional for CRM tracking
+	}
+
+	if err := json.Unmarshal([]byte(args), &input); err != nil {
+		return "", fmt.Errorf("argumentos inválidos: %w", err)
+	}
+
+	// Validaciones básicas
+	if input.FechaEntrada == "" || input.FechaSalida == "" {
+		return "", fmt.Errorf("fechas de entrada y salida son requeridas")
+	}
+
+	if input.CantidadAdultos < 1 {
+		return "", fmt.Errorf("debe haber al menos 1 adulto")
+	}
+
+	if input.TipoHabitacionID < 1 {
+		return "", fmt.Errorf("tipo de habitación inválido")
+	}
+
+	// Obtener información del tipo de habitación
+	tipo, err := rt.habitacionRepo.GetRoomTypeByID(input.TipoHabitacionID)
+	if err != nil {
+		return "", fmt.Errorf("error al obtener tipo de habitación: %w", err)
+	}
+
+	// Construir URL base
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000" // ← CORRECT PORT!
+	}
+	baseURL := frontendURL + "/reservas/DateSelection"
+
+	// Construir parámetros de consulta
+	params := url.Values{}
+	params.Add("checkIn", input.FechaEntrada)
+	params.Add("checkOut", input.FechaSalida)
+	params.Add("adults", fmt.Sprintf("%d", input.CantidadAdultos))
+
+	// Add children if present
+	if input.CantidadNinhos > 0 {
+		params.Add("children", fmt.Sprintf("%d", input.CantidadNinhos))
+	}
+
+	params.Add("roomTypeId", fmt.Sprintf("%d", input.TipoHabitacionID))
+	params.Add("roomType", tipo.Titulo)
+	params.Add("roomPrice", fmt.Sprintf("%.2f", tipo.Precio))
+
+	// Add email if provided (for CRM tracking)
+	if input.Email != "" {
+		params.Add("guestEmail", input.Email)
+	}
+
+	// Construir URL completa
+	fullURL := baseURL + "?" + params.Encode()
+
+	// Log the full URL for debugging
+	log.Printf("Generated booking URL: %s", fullURL)
+
+	// Calcular precio total para mostrar en el mensaje
+	fechaEntrada, _ := time.Parse("2006-01-02", input.FechaEntrada)
+	fechaSalida, _ := time.Parse("2006-01-02", input.FechaSalida)
+	noches := int(fechaSalida.Sub(fechaEntrada).Hours() / 24)
+	if noches < 1 {
+		noches = 1
+	}
+	total := tipo.Precio * float64(noches)
+
+	// Build response message
+	result := fmt.Sprintf("✅ ¡Perfecto! He preparado tu reserva.\n\n"+
+		"📋 **Resumen de tu reserva:**\n"+
+		"• Habitación: %s\n"+
+		"• Check-in: %s\n"+
+		"• Check-out: %s\n"+
+		"• Noches: %d\n"+
+		"• Huéspedes: %d adultos",
+		tipo.Titulo,
+		input.FechaEntrada,
+		input.FechaSalida,
+		noches,
+		input.CantidadAdultos)
+
+	if input.CantidadNinhos > 0 {
+		result += fmt.Sprintf(", %d niños", input.CantidadNinhos)
+	}
+
+	result += fmt.Sprintf("\n• Precio estimado: S/%.2f\n\n", total)
+
+	result += "🔗 **Para completar tu reserva, haz clic en el siguiente enlace:**\n\n"
+	result += fullURL + "\n\n"
+	result += "En el formulario podrás:\n"
+	result += "• Ingresar la información personal de todos los huéspedes\n"
+	result += "• Seleccionar servicios adicionales\n"
+	result += "• Proceder al pago seguro\n\n"
+
+	if input.Email != "" {
+		result += fmt.Sprintf("📧 Hemos guardado tu correo (%s) para enviarte la confirmación.", input.Email)
+	} else {
+		result += "💡 Recuerda ingresar tu correo en el formulario para recibir la confirmación."
+	}
+
+	return result, nil
+}
+
 // ExecuteTool ejecuta una herramienta por nombre
 func (rt *ReservationTools) ExecuteTool(toolName string, args string) (string, error) {
 	tools := rt.GetAvailableTools()
@@ -376,6 +496,31 @@ func (rt *ReservationTools) GetToolDescriptions() string {
 	sb.WriteString("[USE_TOOL: check_availability]\n")
 	sb.WriteString("{\"fechaEntrada\": \"2025-12-01\", \"fechaSalida\": \"2025-12-05\"}\n")
 	sb.WriteString("[END_TOOL]\n\n")
+
+	sb.WriteString("• generate_booking_link: Genera enlace de reserva.\n")
+	sb.WriteString("  Args: {\"fechaEntrada\":\"YYYY-MM-DD\",\"fechaSalida\":\"YYYY-MM-DD\",\"tipoHabitacionId\":6,\"cantidadAdultos\":2,\"cantidadNinhos\":1,\"email\":\"opcional@email.com\"}\n\n")
+
+	sb.WriteString("FORMATO para usar herramientas:\n")
+	sb.WriteString("[USE_TOOL: nombre_herramienta]\n")
+	sb.WriteString("{\"campo\": \"valor\"}\n")
+	sb.WriteString("[END_TOOL]\n\n")
+
+	sb.WriteString("EJEMPLO de generate_booking_link:\n")
+	sb.WriteString("[USE_TOOL: generate_booking_link]\n")
+	sb.WriteString("{\n")
+	sb.WriteString("  \"fechaEntrada\": \"2025-12-20\",\n")
+	sb.WriteString("  \"fechaSalida\": \"2025-12-27\",\n")
+	sb.WriteString("  \"tipoHabitacionId\": 6,\n")
+	sb.WriteString("  \"cantidadAdultos\": 2,\n")
+	sb.WriteString("  \"cantidadNinhos\": 1,\n")
+	sb.WriteString("  \"email\": \"cliente@email.com\"\n")
+	sb.WriteString("}\n")
+	sb.WriteString("[END_TOOL]\n\n")
+
+	sb.WriteString("IMPORTANTE:\n")
+	sb.WriteString("- Usa EXACTAMENTE estos nombres de campos\n")
+	sb.WriteString("- El email es opcional pero recomendado para CRM\n")
+	sb.WriteString("- NO intentes parsear nombres complejos\n")
 
 	return sb.String()
 }
