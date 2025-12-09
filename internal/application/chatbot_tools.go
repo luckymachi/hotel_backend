@@ -196,20 +196,50 @@ func (rt *ReservationTools) CreateReservation(args string) (string, error) {
 	}
 
 	if err := json.Unmarshal([]byte(args), &input); err != nil {
-		return "", fmt.Errorf("argumentos inválidos: %w", err)
+		return "", fmt.Errorf("❌ Argumentos inválidos para crear la reserva: %w", err)
 	}
 
 	// Validaciones básicas
 	if input.FechaEntrada == "" || input.FechaSalida == "" {
-		return "", fmt.Errorf("fechas de entrada y salida son requeridas")
+		return "", fmt.Errorf("❌ Las fechas de entrada y salida son requeridas")
 	}
 
 	if input.CantidadAdultos < 1 {
-		return "", fmt.Errorf("debe haber al menos 1 adulto")
+		return "", fmt.Errorf("❌ Debe haber al menos 1 adulto en la reserva")
 	}
 
 	if input.TipoHabitacionID < 1 {
-		return "", fmt.Errorf("tipo de habitación inválido")
+		return "", fmt.Errorf("❌ Debe seleccionar un tipo de habitación válido")
+	}
+
+	// Validar datos personales
+	validator := &Validator{}
+
+	segundoApellido := ""
+	if input.PersonalData.SegundoApellido != nil {
+		segundoApellido = *input.PersonalData.SegundoApellido
+	}
+
+	telefono2 := ""
+	if input.PersonalData.Telefono2 != nil {
+		telefono2 = *input.PersonalData.Telefono2
+	}
+
+	validationErrors := validator.ValidatePersonalData(
+		input.PersonalData.Nombre,
+		input.PersonalData.PrimerApellido,
+		segundoApellido,
+		input.PersonalData.NumeroDocumento,
+		input.PersonalData.Genero,
+		input.PersonalData.Correo,
+		input.PersonalData.Telefono1,
+		telefono2,
+	)
+
+	if len(validationErrors) > 0 {
+		errorMsg := validator.FormatValidationErrors(validationErrors)
+		log.Printf("Validation errors in CreateReservation: %s", errorMsg)
+		return "", fmt.Errorf(errorMsg)
 	}
 
 	// Parsear fechas
