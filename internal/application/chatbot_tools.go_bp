@@ -196,20 +196,50 @@ func (rt *ReservationTools) CreateReservation(args string) (string, error) {
 	}
 
 	if err := json.Unmarshal([]byte(args), &input); err != nil {
-		return "", fmt.Errorf("argumentos inválidos: %w", err)
+		return "", fmt.Errorf("❌ Argumentos inválidos para crear la reserva: %w", err)
 	}
 
 	// Validaciones básicas
 	if input.FechaEntrada == "" || input.FechaSalida == "" {
-		return "", fmt.Errorf("fechas de entrada y salida son requeridas")
+		return "", fmt.Errorf("❌ Las fechas de entrada y salida son requeridas")
 	}
 
 	if input.CantidadAdultos < 1 {
-		return "", fmt.Errorf("debe haber al menos 1 adulto")
+		return "", fmt.Errorf("❌ Debe haber al menos 1 adulto en la reserva")
 	}
 
 	if input.TipoHabitacionID < 1 {
-		return "", fmt.Errorf("tipo de habitación inválido")
+		return "", fmt.Errorf("❌ Debe seleccionar un tipo de habitación válido")
+	}
+
+	// Validar datos personales
+	validator := &Validator{}
+
+	segundoApellido := ""
+	if input.PersonalData.SegundoApellido != nil {
+		segundoApellido = *input.PersonalData.SegundoApellido
+	}
+
+	telefono2 := ""
+	if input.PersonalData.Telefono2 != nil {
+		telefono2 = *input.PersonalData.Telefono2
+	}
+
+	validationErrors := validator.ValidatePersonalData(
+		input.PersonalData.Nombre,
+		input.PersonalData.PrimerApellido,
+		segundoApellido,
+		input.PersonalData.NumeroDocumento,
+		input.PersonalData.Genero,
+		input.PersonalData.Correo,
+		input.PersonalData.Telefono1,
+		telefono2,
+	)
+
+	if len(validationErrors) > 0 {
+		errorMsg := validator.FormatValidationErrors(validationErrors)
+		log.Printf("Validation errors in CreateReservation: %s", errorMsg)
+		return "", fmt.Errorf(errorMsg)
 	}
 
 	// Parsear fechas
@@ -442,30 +472,55 @@ func (rt *ReservationTools) ExecuteTool(toolName string, args string) (string, e
 }
 
 // GetToolDescriptions retorna descripciones de las herramientas para incluir en el prompt
-
 func (rt *ReservationTools) GetToolDescriptions() string {
 	var sb strings.Builder
 
 	sb.WriteString("\n=== HERRAMIENTAS DISPONIBLES ===\n\n")
+	sb.WriteString("Puedes usar las siguientes herramientas para ayudar al usuario:\n\n")
 
-	sb.WriteString("1. get_room_types\n")
-	sb.WriteString("   Uso: [USE_TOOL: get_room_types]\n{}\n[END_TOOL]\n\n")
+	tools := rt.GetAvailableTools()
+	for _, tool := range tools {
+		sb.WriteString(fmt.Sprintf("• %s: %s\n", tool.Name, tool.Description))
+	}
 
-	sb.WriteString("2. check_availability\n")
-	sb.WriteString("   Uso: [USE_TOOL: check_availability]\n{\"fechaEntrada\":\"2025-12-27\",\"fechaSalida\":\"2026-01-04\"}\n[END_TOOL]\n\n")
+	sb.WriteString("\nPara usar una herramienta, responde EXACTAMENTE en este formato:\n")
+	sb.WriteString("[USE_TOOL: nombre_herramienta]\n")
+	sb.WriteString("{\"arg1\": \"value1\", \"arg2\": \"value2\"}\n")
+	sb.WriteString("[END_TOOL]\n\n")
 
-	sb.WriteString("3. calculate_price\n")
-	sb.WriteString("   Uso: [USE_TOOL: calculate_price]\n{\"tipoHabitacionId\":6,\"fechaEntrada\":\"2025-12-27\",\"fechaSalida\":\"2026-01-04\"}\n[END_TOOL]\n\n")
+	sb.WriteString("Ejemplos:\n")
+	sb.WriteString("[USE_TOOL: get_room_types]\n")
+	sb.WriteString("{}\n")
+	sb.WriteString("[END_TOOL]\n\n")
 
-	sb.WriteString("4. generate_booking_link - USA ESTA cuando usuario confirme la reserva\n")
-	sb.WriteString("   Uso: [USE_TOOL: generate_booking_link]\n")
-	sb.WriteString("   {\"fechaEntrada\":\"2025-12-27\",\"fechaSalida\":\"2026-01-04\",\"tipoHabitacionId\":6,\"cantidadAdultos\":2,\"cantidadNinhos\":0,\"email\":\"user@email.com\"}\n")
-	sb.WriteString("   [END_TOOL]\n\n")
+	sb.WriteString("[USE_TOOL: check_availability]\n")
+	sb.WriteString("{\"fechaEntrada\": \"2025-12-01\", \"fechaSalida\": \"2025-12-05\"}\n")
+	sb.WriteString("[END_TOOL]\n\n")
+
+	sb.WriteString("• generate_booking_link: Genera enlace de reserva.\n")
+	sb.WriteString("  Args: {\"fechaEntrada\":\"YYYY-MM-DD\",\"fechaSalida\":\"YYYY-MM-DD\",\"tipoHabitacionId\":6,\"cantidadAdultos\":2,\"cantidadNinhos\":1,\"email\":\"opcional@email.com\"}\n\n")
+
+	sb.WriteString("FORMATO para usar herramientas:\n")
+	sb.WriteString("[USE_TOOL: nombre_herramienta]\n")
+	sb.WriteString("{\"campo\": \"valor\"}\n")
+	sb.WriteString("[END_TOOL]\n\n")
+
+	sb.WriteString("EJEMPLO de generate_booking_link:\n")
+	sb.WriteString("[USE_TOOL: generate_booking_link]\n")
+	sb.WriteString("{\n")
+	sb.WriteString("  \"fechaEntrada\": \"2025-12-20\",\n")
+	sb.WriteString("  \"fechaSalida\": \"2025-12-27\",\n")
+	sb.WriteString("  \"tipoHabitacionId\": 6,\n")
+	sb.WriteString("  \"cantidadAdultos\": 2,\n")
+	sb.WriteString("  \"cantidadNinhos\": 1,\n")
+	sb.WriteString("  \"email\": \"cliente@email.com\"\n")
+	sb.WriteString("}\n")
+	sb.WriteString("[END_TOOL]\n\n")
 
 	sb.WriteString("IMPORTANTE:\n")
-	sb.WriteString("- USA generate_booking_link cuando el usuario dice: 'confirmar', 'sí', 'adelante', 'continuar'\n")
-	sb.WriteString("- NO inventes URLs - SIEMPRE usa la herramienta\n")
-	sb.WriteString("- El formato DEBE ser exacto: [USE_TOOL: nombre]\\n{json}\\n[END_TOOL]\n")
+	sb.WriteString("- Usa EXACTAMENTE estos nombres de campos\n")
+	sb.WriteString("- El email es opcional pero recomendado para CRM\n")
+	sb.WriteString("- NO intentes parsear nombres complejos\n")
 
 	return sb.String()
 }
