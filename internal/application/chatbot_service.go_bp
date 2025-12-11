@@ -20,6 +20,12 @@ type ChatbotService struct {
 	searchService    *SearchService
 	location         string
 	reservationTools *ReservationTools
+	// Nuevas utilidades
+	dateParser   *DateParser
+	validator    *Validator
+	faqHandler   *FAQHandler
+	webCache     *WebCache
+	rateLimiter  *RateLimiter
 }
 
 func NewChatbotService(
@@ -44,18 +50,92 @@ func NewChatbotService(
 		searchService:    searchService,
 		location:         location,
 		reservationTools: reservationTools,
+		// Inicializar nuevas utilidades
+		dateParser:   &DateParser{},
+		validator:    &Validator{},
+		faqHandler:   NewFAQHandler(location),
+		webCache:     NewWebCache(1 * time.Hour), // Caché de 1 hora
+		rateLimiter:  NewRateLimiter(1*time.Minute, 20), // 20 mensajes por minuto
 	}
 }
 
 func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatResponse, error) {
-	// 1. Obtener o crear historial de conversación
+	startTime := time.Now()
+
+	// 0. Rate limiting
+	identifier := "anonymous"
+	if req.ConversationID != nil && *req.ConversationID != "" {
+		identifier = *req.ConversationID
+	} else if req.ClienteID != nil {
+		identifier = fmt.Sprintf("client_%d", *req.ClienteID)
+	}
+
+	allowed, err := s.rateLimiter.Allow(identifier)
+	if !allowed {
+		log.Printf("Rate limit exceeded for %s: %v", identifier, err)
+		return &domain.ChatResponse{
+			Message:          "⚠️ Has enviado muchos mensajes en poco tiempo. " + err.Error(),
+			ConversationID:   "",
+			RequiresHuman:    false,
+			SuggestedActions: []string{"Espera un momento", "Intenta más tarde"},
+		}, nil
+	}
+
+	// 1. Verificar si es una pregunta frecuente simple
+	if s.faqHandler.ShouldUseFAQ(req.Message) {
+		if quickResponse, found := s.faqHandler.GetQuickResponse(req.Message); found {
+			log.Printf("FAQ quick response for: %s (took %v)", req.Message, time.Since(startTime))
+
+			// Crear o recuperar conversación para guardar el mensaje
+			var conversation *domain.ConversationHistory
+			if req.ConversationID != nil && *req.ConversationID != "" {
+				conversation, _ = s.repo.GetConversation(*req.ConversationID)
+			}
+
+			if conversation == nil {
+				conversation = &domain.ConversationHistory{
+					ID:        uuid.New().String(),
+					ClienteID: req.ClienteID,
+					Messages:  []domain.ChatMessage{},
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				}
+			}
+
+			// Guardar mensaje del usuario y respuesta
+			conversation.Messages = append(conversation.Messages,
+				domain.ChatMessage{Role: "user", Content: req.Message},
+				domain.ChatMessage{Role: "assistant", Content: quickResponse},
+			)
+			conversation.UpdatedAt = time.Now()
+
+			if req.ConversationID == nil || *req.ConversationID == "" {
+				_ = s.repo.SaveConversation(conversation)
+			} else {
+				_ = s.repo.UpdateConversation(conversation)
+			}
+
+			return &domain.ChatResponse{
+				Message:          quickResponse,
+				ConversationID:   conversation.ID,
+				RequiresHuman:    false,
+				SuggestedActions: s.generateSuggestedActions(req.Message, quickResponse),
+				Metadata: map[string]interface{}{
+					"source":       "faq",
+					"responseTime": time.Since(startTime).Milliseconds(),
+				},
+			}, nil
+		}
+	}
+
+	// 2. Obtener o crear historial de conversación
 	var conversation *domain.ConversationHistory
-	var err error
 
 	if req.ConversationID != nil && *req.ConversationID != "" {
 		conversation, err = s.repo.GetConversation(*req.ConversationID)
 		if err != nil {
-			return nil, fmt.Errorf("error getting conversation: %w", err)
+			log.Printf("Error getting conversation %s: %v", *req.ConversationID, err)
+			return nil, fmt.Errorf("❌ No se pudo recuperar la conversación. Por favor, intenta de nuevo")
 		}
 	}
 
@@ -68,12 +148,35 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 			UpdatedAt:             time.Now(),
 			ReservationInProgress: nil,
 		}
+		log.Printf("New conversation created: %s", conversation.ID)
 	}
 
-	// 1.5 Detectar intención de reserva y actualizar estado
+	// 2.5 Detectar si el usuario quiere cancelar
+	if s.detectCancelIntent(req.Message) && conversation.ReservationInProgress != nil {
+		conversation.ReservationInProgress = nil
+		conversation.Messages = append(conversation.Messages,
+			domain.ChatMessage{Role: "user", Content: req.Message},
+			domain.ChatMessage{Role: "assistant", Content: "✅ He cancelado la reserva en progreso. ¿En qué más puedo ayudarte?"},
+		)
+		_ = s.repo.UpdateConversation(conversation)
+
+		return &domain.ChatResponse{
+			Message:              "✅ He cancelado la reserva en progreso. ¿En qué más puedo ayudarte?",
+			ConversationID:       conversation.ID,
+			RequiresHuman:        false,
+			ReservationInProgress: nil,
+			SuggestedActions:     []string{"Ver habitaciones disponibles", "Hacer una nueva reserva"},
+			Metadata: map[string]interface{}{
+				"source":       "cancel",
+				"responseTime": time.Since(startTime).Milliseconds(),
+			},
+		}, nil
+	}
+
+	// 3. Detectar intención de reserva y actualizar estado
 	conversation = s.updateReservationState(conversation, req.Message)
 
-	// 2. Agregar mensaje del usuario
+	// 4. Agregar mensaje del usuario
 	conversation.Messages = append(conversation.Messages, domain.ChatMessage{
 		Role:    "user",
 		Content: req.Message,
@@ -91,36 +194,49 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 	}
 
 	if useWeb {
-		// Preferir SearchService si está disponible
-		log.Printf("Chatbot: performing web search message (near %s), useWeb=%v", s.location, useWeb)
 		// Construir query con ubicación para focalizar resultados locales
 		query := req.Message
 		if s.location != "" {
 			query = fmt.Sprintf("%s near %s", req.Message, s.location)
 		}
 
-		if s.searchService != nil {
-			input := SearchInput{Query: query, MaxResults: 3}
-			if resp, err := s.searchService.SearchWeb(input); err == nil {
-				tavilyResp = resp
-				webContext = s.formatWebResults(resp)
-			} else {
-				log.Printf("searchService error: %v", err)
-			}
-		} else if s.tavilyClient != nil {
-			if resp, err := s.tavilyClient.Search(tavily.SearchRequest{Query: query, MaxResults: 3}); err == nil {
-				tavilyResp = resp
-				webContext = s.formatWebResults(resp)
-			} else {
-				log.Printf("tavily search error: %v", err)
+		// Intentar obtener del caché primero
+		if cachedResp, found := s.webCache.Get(query); found {
+			log.Printf("Web search cache HIT for: %s", query)
+			tavilyResp = cachedResp
+			webContext = s.formatWebResults(cachedResp)
+		} else {
+			log.Printf("Web search cache MISS, performing search for: %s", query)
+
+			// Realizar búsqueda web
+			if s.searchService != nil {
+				input := SearchInput{Query: query, MaxResults: 3}
+				if resp, err := s.searchService.SearchWeb(input); err == nil {
+					tavilyResp = resp
+					webContext = s.formatWebResults(resp)
+					// Guardar en caché
+					s.webCache.Set(query, resp)
+				} else {
+					log.Printf("searchService error: %v", err)
+				}
+			} else if s.tavilyClient != nil {
+				if resp, err := s.tavilyClient.Search(tavily.SearchRequest{Query: query, MaxResults: 3}); err == nil {
+					tavilyResp = resp
+					webContext = s.formatWebResults(resp)
+					// Guardar en caché
+					s.webCache.Set(query, resp)
+				} else {
+					log.Printf("tavily search error: %v", err)
+				}
 			}
 		}
 	}
 
-	// 3. Obtener información real del hotel desde la BD
+	// 5. Obtener información real del hotel desde la BD
 	hotelInfo, err := s.getHotelInfo(req)
 	if err != nil {
-		return nil, fmt.Errorf("error getting hotel info: %w", err)
+		log.Printf("Error getting hotel info: %v", err)
+		return nil, fmt.Errorf("❌ Error al obtener información del hotel. Por favor, intenta de nuevo")
 	}
 
 	// 4. Preparar contexto con información real (incluye resultados web y herramientas)
@@ -147,6 +263,7 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 	}
 
 	// 6. Llamar a OpenAI/Groq
+	llmStartTime := time.Now()
 	openaiReq := openai.ChatCompletionRequest{
 		Model:       "llama-3.1-8b-instant", // Modelo de Groq
 		Messages:    messages,
@@ -154,19 +271,22 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 		MaxTokens:   500,
 	}
 
+	log.Printf("Calling LLM with %d messages, model: %s", len(messages), openaiReq.Model)
+
 	openaiResp, err := s.openaiClient.CreateChatCompletion(openaiReq)
 	if err != nil {
-		return nil, fmt.Errorf("error calling OpenAI: %w", err)
+		log.Printf("❌ LLM error: %v (took %v)", err, time.Since(llmStartTime))
+		return nil, fmt.Errorf("❌ Error al procesar tu mensaje. El servicio está temporalmente no disponible. Por favor, intenta de nuevo en unos momentos")
 	}
 
 	if len(openaiResp.Choices) == 0 {
-		return nil, fmt.Errorf("no response from OpenAI")
+		log.Printf("❌ LLM returned no choices (took %v)", time.Since(llmStartTime))
+		return nil, fmt.Errorf("❌ No se pudo generar una respuesta. Por favor, intenta reformular tu pregunta")
 	}
 
-	assistantMessage := openaiResp.Choices[0].Message.Content
+	log.Printf("✅ LLM response received (took %v, tokens: %d)", time.Since(llmStartTime), openaiResp.Usage.TotalTokens)
 
-	// ✅ ADD THIS: Log what LLM actually generated
-	log.Printf("LLM raw response: %s", assistantMessage)
+	assistantMessage := openaiResp.Choices[0].Message.Content
 
 	// 6.5 Detectar y ejecutar herramientas si es necesario
 	finalMessage := assistantMessage
@@ -174,83 +294,67 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 	var toolErr error
 
 	// Intentar ejecutar herramientas (máximo 3 intentos para evitar loops)
-	// maxToolIterations := 3
+	maxToolIterations := 3
+	for i := 0; i < maxToolIterations; i++ {
+		var executed bool
+		finalMessage, executed, toolErr = s.detectAndExecuteTools(finalMessage)
 
-	// Ejecutar herramienta una sola vez
-	finalMessage, toolExecuted, toolErr = s.detectAndExecuteTools(assistantMessage)
-
-	if toolErr != nil {
-		finalMessage = fmt.Sprintf("Lo siento, hubo un error: %s\n\nPor favor, intenta de nuevo.", toolErr.Error())
-		log.Printf("Error ejecutando herramienta: %v", toolErr)
-	}
-
-	// Si se ejecutó una herramienta, usar el resultado directamente
-	// NO hacer segunda llamada al LLM - el resultado de la herramienta ya está formateado
-	if toolExecuted && toolErr == nil {
-		log.Printf("Tool executed successfully, using result directly (no second LLM call)")
-	}
-	/*
-		for i := 0; i < maxToolIterations; i++ {
-			var executed bool
-			finalMessage, executed, toolErr = s.detectAndExecuteTools(finalMessage)
-
-			if toolErr != nil {
-				// Si hay error en la herramienta, agregar el error al mensaje
-				finalMessage = fmt.Sprintf("%s\n\n[ERROR]: %s", finalMessage, toolErr.Error())
-				log.Printf("Error ejecutando herramienta: %v", toolErr)
-				break
-			}
-
-			if !executed {
-				break
-			}
-
-			toolExecuted = true
-
-			// Si se ejecutó una herramienta, hacer otra llamada al LLM con el resultado
-			conversation.Messages = append(conversation.Messages, domain.ChatMessage{
-				Role:    "assistant",
-				Content: finalMessage,
-			})
-
-			// Construir mensajes para segunda llamada
-			messages = []openai.Message{
-				{Role: "system", Content: systemPrompt},
-			}
-
-			// Agregar últimos mensajes
-			startIdx := 0
-			if len(conversation.Messages) > 10 {
-				startIdx = len(conversation.Messages) - 10
-			}
-
-			for _, msg := range conversation.Messages[startIdx:] {
-				messages = append(messages, openai.Message{
-					Role:    msg.Role,
-					Content: msg.Content,
-				})
-			}
-
-			// Segunda llamada al LLM
-			openaiReq = openai.ChatCompletionRequest{
-				Model:       "llama-3.1-8b-instant",
-				Messages:    messages,
-				Temperature: 0.7,
-				MaxTokens:   500,
-			}
-
-			openaiResp, err = s.openaiClient.CreateChatCompletion(openaiReq)
-			if err != nil {
-				return nil, fmt.Errorf("error calling OpenAI (second call): %w", err)
-			}
-
-			if len(openaiResp.Choices) == 0 {
-				return nil, fmt.Errorf("no response from OpenAI (second call)")
-			}
-
-			finalMessage = openaiResp.Choices[0].Message.Content
+		if toolErr != nil {
+			// Si hay error en la herramienta, agregar el error al mensaje
+			finalMessage = fmt.Sprintf("%s\n\n[ERROR]: %s", finalMessage, toolErr.Error())
+			log.Printf("Error ejecutando herramienta: %v", toolErr)
+			break
 		}
-	*/
+
+		if !executed {
+			break
+		}
+
+		toolExecuted = true
+
+		// Si se ejecutó una herramienta, hacer otra llamada al LLM con el resultado
+		conversation.Messages = append(conversation.Messages, domain.ChatMessage{
+			Role:    "assistant",
+			Content: finalMessage,
+		})
+
+		// Construir mensajes para segunda llamada
+		messages = []openai.Message{
+			{Role: "system", Content: systemPrompt},
+		}
+
+		// Agregar últimos mensajes
+		startIdx := 0
+		if len(conversation.Messages) > 10 {
+			startIdx = len(conversation.Messages) - 10
+		}
+
+		for _, msg := range conversation.Messages[startIdx:] {
+			messages = append(messages, openai.Message{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+
+		// Segunda llamada al LLM
+		openaiReq = openai.ChatCompletionRequest{
+			Model:       "llama-3.1-8b-instant",
+			Messages:    messages,
+			Temperature: 0.7,
+			MaxTokens:   500,
+		}
+
+		openaiResp, err = s.openaiClient.CreateChatCompletion(openaiReq)
+		if err != nil {
+			return nil, fmt.Errorf("error calling OpenAI (second call): %w", err)
+		}
+
+		if len(openaiResp.Choices) == 0 {
+			return nil, fmt.Errorf("no response from OpenAI (second call)")
+		}
+
+		finalMessage = openaiResp.Choices[0].Message.Content
+	}
 
 	// 7. Agregar respuesta final del asistente
 	conversation.Messages = append(conversation.Messages, domain.ChatMessage{
@@ -262,12 +366,18 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 	conversation.UpdatedAt = time.Now()
 	if req.ConversationID == nil || *req.ConversationID == "" {
 		err = s.repo.SaveConversation(conversation)
+		if err != nil {
+			log.Printf("❌ Error saving new conversation: %v", err)
+			// No fallar completamente, solo logear
+		} else {
+			log.Printf("✅ New conversation saved: %s", conversation.ID)
+		}
 	} else {
 		err = s.repo.UpdateConversation(conversation)
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("error saving conversation: %w", err)
+		if err != nil {
+			log.Printf("❌ Error updating conversation %s: %v", conversation.ID, err)
+			// No fallar completamente, solo logear
+		}
 	}
 
 	// 9. Si el cliente está identificado, guardar en tabla mensaje
@@ -289,14 +399,31 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 		sources = append(sources, "tools")
 	}
 
+	// Metadata mejorado con más información útil
 	metadata := map[string]interface{}{
-		"tokensUsed": openaiResp.Usage.TotalTokens,
-		"sources":    sources,
+		"tokensUsed":   openaiResp.Usage.TotalTokens,
+		"sources":      sources,
+		"responseTime": time.Since(startTime).Milliseconds(),
+		"llmModel":     openaiReq.Model,
+		"messageCount": len(conversation.Messages),
 	}
+
 	// incluir resultados web crudos para uso del frontend (si existen)
 	if tavilyResp != nil {
 		metadata["webResults"] = tavilyResp
+		metadata["webCacheHit"] = false
+		if cachedResp, found := s.webCache.Get(fmt.Sprintf("%s near %s", req.Message, s.location)); found && cachedResp != nil {
+			metadata["webCacheHit"] = true
+		}
 	}
+
+	// Información de rate limiting
+	if req.ConversationID != nil {
+		remaining := s.rateLimiter.GetRemaining(identifier)
+		metadata["rateLimitRemaining"] = remaining
+	}
+
+	log.Printf("✅ Total request processed in %v (conversation: %s)", time.Since(startTime), conversation.ID)
 
 	// 12. Verificar si se creó una reserva
 	var reservaCreada *int
@@ -313,11 +440,8 @@ func (s *ChatbotService) ProcessMessage(req domain.ChatRequest) (*domain.ChatRes
 		}
 	}
 
-	// ✅ NEW: Clean the message before sending to frontend
-	cleanedMessage := cleanResponseForFrontend(finalMessage)
-
 	return &domain.ChatResponse{
-		Message:               cleanedMessage,
+		Message:               finalMessage,
 		ConversationID:        conversation.ID,
 		SuggestedActions:      suggestedActions,
 		RequiresHuman:         requiresHuman,
@@ -504,74 +628,24 @@ Tu objetivo es ayudar a los huéspedes con:
 - Políticas del hotel (check-in 14:00, check-out 12:00)
 - Tarifas reales del sistema
 
-
-IMPORTANTE SOBRE CONTEXTO:
-- RECUERDA el tipo de habitación que el usuario eligió
-- Si el usuario dice "Suite", el tipoHabitacionId es 6
-- Si el usuario dice "Doble", el tipoHabitacionId es 5
-- Si el usuario dice "Simple", el tipoHabitacionId es 4
-- Si el usuario dice "Presidencial", el tipoHabitacionId es 9
-- Si el usuario dice "Familiar", el tipoHabitacionId es 10
-- NO inventes IDs que no existen
-- Cuando uses check_availability o calculate_price, RECUERDA el ID que usaste
-- Cuando uses generate_booking_link, USA EL MISMO ID que usaste en calculate_price
-
-
 FLUJO DE RESERVAS:
-Cuando un usuario quiera hacer una reserva, sigue estos pasos EXACTAMENTE:
-
+Cuando un usuario quiera hacer una reserva, sigue estos pasos:
 1. Pregunta fechas de entrada y salida
-2. Pregunta cantidad de adultos y niños  
-3. EJECUTA: [USE_TOOL: check_availability]
-   {"fechaEntrada": "YYYY-MM-DD", "fechaSalida": "YYYY-MM-DD"}
-   [END_TOOL]
-4. Muestra las opciones disponibles
-5. Usuario selecciona habitación
-6. EJECUTA: [USE_TOOL: calculate_price]
-   {"tipoHabitacionId": X, "fechaEntrada": "YYYY-MM-DD", "fechaSalida": "YYYY-MM-DD"}
-   [END_TOOL]
-7. Muestra el precio total
-8. Pregunta si quiere continuar/confirmar
-9. CUANDO USUARIO CONFIRMA (dice "sí", "confirmar", "continuar", etc.), EJECUTA INMEDIATAMENTE:
-   [USE_TOOL: generate_booking_link]
-   {"fechaEntrada": "YYYY-MM-DD", "fechaSalida": "YYYY-MM-DD", "tipoHabitacionId": X, "cantidadAdultos": X, "cantidadNinhos": X, "email": "opcional@email.com"}
-   [END_TOOL]
+2. Pregunta cantidad de adultos y niños
+3. USA LA HERRAMIENTA 'check_availability' para verificar disponibilidad
+4. Muestra las opciones disponibles usando 'get_room_types' si es necesario
+5. Pregunta qué tipo de habitación prefiere
+6. USA LA HERRAMIENTA 'calculate_price' para calcular el precio total
+7. (OPCIONAL) Pregunta el correo electrónico del cliente para seguimiento
+8. USA LA HERRAMIENTA 'generate_booking_link' con la información recopilada
+9. Proporciona el enlace al usuario explicando que completará sus datos en el formulario
 
-CRÍTICO - USAR HERRAMIENTAS:
-- Para generar el enlace de reserva, DEBES usar EXACTAMENTE este formato:
-  [USE_TOOL: generate_booking_link]
-  {"fechaEntrada": "2025-12-27", "fechaSalida": "2026-01-04", "tipoHabitacionId": 6, "cantidadAdultos": 2, "cantidadNinhos": 0, "email": "ga@gmail.com"}
-  [END_TOOL]
-
-- NO inventes URLs como "http://www.hotel.com/reserva/..."
-- NO generes enlaces manualmente
-- SIEMPRE usa la herramienta generate_booking_link
-- El resultado de la herramienta ya contiene el enlace correcto y el mensaje formateado
-
-EJEMPLO COMPLETO de cuándo usar generate_booking_link:
-Usuario: "Sí, confirmo"
-Tu respuesta DEBE ser:
-[USE_TOOL: generate_booking_link]
-{"fechaEntrada": "2025-12-28", "fechaSalida": "2026-01-04", "tipoHabitacionId": 6, "cantidadAdultos": 2, "cantidadNinhos": 0, "email": "ga@gmail.com"}
-[END_TOOL]
-
-NO respondas con texto antes del tool call cuando el usuario confirma una reserva.
-
-CRÍTICO - NO MOSTRAR AL USUARIO:
-- NO muestres [USE_TOOL...], [RESULTADO...], [FIN RESULTADO]
-- NO digas "Espero un momento mientras..." - solo ejecuta la herramienta
-- NO muestres URLs falsas o de ejemplo
-- NO reformules el resultado de las herramientas - son perfectos tal cual
-
-IMPORTANTE SOBRE FECHAS:
-- Si el usuario dice algo como "del 27 de diciembre al 4 de enero" asume que enero es del AÑO SIGUIENTE
-- Ejemplo: 27 dic 2025 al 4 ene = 2025-12-27 a 2026-01-04
-
-IMPORTANTE SOBRE generate_booking_link:
-- Cuando el usuario dice "quiero hacer la reserva" o "confirmar", USA generate_booking_link INMEDIATAMENTE
-- NO preguntes más cosas si ya tienes: fechas, adultos, niños, tipo de habitación
-- El correo es OPCIONAL - si no lo tienes, genera el link sin él
-- El resultado de la herramienta YA está perfectamente formateado - NO lo reformules
+IMPORTANTE:
+- NO intentes recopilar nombres completos o datos personales detallados
+- El correo es OPCIONAL, solo para seguimiento CRM
+- El usuario completará TODOS sus datos en el formulario web
+- El formulario está diseñado para manejar múltiples huéspedes correctamente
+- Solo recopila: fechas, cantidad de adultos, cantidad de niños, tipo de habitación, y opcionalmente email
 
 POLÍTICAS DEL HOTEL:
 - Check-in: 14:00 hrs
@@ -667,6 +741,28 @@ func (s *ChatbotService) generateSuggestedActions(userMsg, botMsg string) []stri
 	return actions
 }
 
+// generateContextualSuggestedActions genera acciones sugeridas basadas en el estado de la reserva
+func (s *ChatbotService) generateContextualSuggestedActions(reservation *domain.ReservationInProgress, userMsg, botMsg string) []string {
+	// Si hay una reserva en progreso, sugerir según el paso actual
+	if reservation != nil {
+		switch reservation.Step {
+		case "dates":
+			return []string{"Consultar disponibilidad", "Ver habitaciones", "Cancelar reserva"}
+		case "guests":
+			return []string{"Continuar con reserva", "Cambiar fechas", "Cancelar reserva"}
+		case "room_type":
+			return []string{"Ver detalles de habitaciones", "Cambiar fechas", "Cancelar reserva"}
+		case "personal_data":
+			return []string{"Confirmar datos", "Modificar reserva", "Cancelar reserva"}
+		case "confirmation":
+			return []string{"Confirmar reserva", "Modificar datos", "Cancelar reserva"}
+		}
+	}
+
+	// Si no hay reserva en progreso, usar las sugerencias generales
+	return s.generateSuggestedActions(userMsg, botMsg)
+}
+
 func (s *ChatbotService) GetConversationHistory(conversationID string) (*domain.ConversationHistory, error) {
 	return s.repo.GetConversation(conversationID)
 }
@@ -734,32 +830,20 @@ func (s *ChatbotService) updateReservationState(conversation *domain.Conversatio
 		"book", "booking",
 	}
 
-	//	isReservationIntent := false
-	isNewReservationIntent := false
+	isReservationIntent := false
 	for _, keyword := range reservaKeywords {
 		if strings.Contains(msgLower, keyword) {
-			isNewReservationIntent = true
+			isReservationIntent = true
 			break
 		}
 	}
 
-	/*
-		// Si hay intención de reserva y no hay una en progreso, iniciar una nueva
-		if isReservationIntent && conversation.ReservationInProgress == nil {
-			conversation.ReservationInProgress = &domain.ReservationInProgress{
-				Step: "dates",
-			}
-			log.Printf("Nueva reserva iniciada en paso: dates")
-		}
-	*/
-	// Solo iniciar NUEVA reserva si NO hay una en progreso
-	if isNewReservationIntent && conversation.ReservationInProgress == nil {
+	// Si hay intención de reserva y no hay una en progreso, iniciar una nueva
+	if isReservationIntent && conversation.ReservationInProgress == nil {
 		conversation.ReservationInProgress = &domain.ReservationInProgress{
 			Step: "dates",
 		}
 		log.Printf("Nueva reserva iniciada en paso: dates")
-	} else if conversation.ReservationInProgress != nil {
-		log.Printf("Reserva existente, paso actual: %s", conversation.ReservationInProgress.Step)
 	}
 
 	// Si hay una reserva en progreso, intentar extraer información del mensaje
@@ -772,40 +856,73 @@ func (s *ChatbotService) updateReservationState(conversation *domain.Conversatio
 
 // extractReservationData intenta extraer datos de reserva del mensaje del usuario
 func (s *ChatbotService) extractReservationData(reservation *domain.ReservationInProgress, message string) {
-	// Intentar extraer fechas (formato YYYY-MM-DD o DD/MM/YYYY)
-	// Esto es básico, se podría mejorar con NLP más sofisticado
+	now := time.Now().Truncate(24 * time.Hour)
 
-	// Intentar extraer cantidad de adultos
-	if strings.Contains(strings.ToLower(message), "adulto") {
-		// Buscar números en el mensaje
-		var num int
-		if _, err := fmt.Sscanf(message, "%d", &num); err == nil && num > 0 {
-			reservation.CantidadAdultos = &num
-			log.Printf("Cantidad de adultos extraída: %d", num)
+	// Intentar extraer rango de fechas con el DateParser mejorado
+	if reservation.Step == "dates" || (reservation.FechaEntrada == nil || reservation.FechaSalida == nil) {
+		if startDate, endDate, err := s.dateParser.ExtractDateRange(message); err == nil {
+			startDateStr := startDate.Format("2006-01-02")
+			endDateStr := endDate.Format("2006-01-02")
+			reservation.FechaEntrada = &startDateStr
+			reservation.FechaSalida = &endDateStr
+			log.Printf("✅ Fechas extraídas: %s a %s", startDateStr, endDateStr)
+		} else {
+			// Intentar extraer una sola fecha
+			if singleDate, err := s.dateParser.ParseNaturalDate(message, now); err == nil {
+				dateStr := singleDate.Format("2006-01-02")
+				if reservation.FechaEntrada == nil {
+					reservation.FechaEntrada = &dateStr
+					log.Printf("✅ Fecha de entrada extraída: %s", dateStr)
+				} else if reservation.FechaSalida == nil {
+					reservation.FechaSalida = &dateStr
+					log.Printf("✅ Fecha de salida extraída: %s", dateStr)
+				}
+			}
 		}
 	}
 
-	// Intentar extraer cantidad de niños
-	if strings.Contains(strings.ToLower(message), "niño") || strings.Contains(strings.ToLower(message), "niños") {
-		var num int
-		if _, err := fmt.Sscanf(message, "%d", &num); err == nil {
-			reservation.CantidadNinhos = &num
-			log.Printf("Cantidad de niños extraída: %d", num)
+	// Intentar extraer cantidad de adultos y niños con números mejorados
+	numbers := s.dateParser.ExtractNumbers(message)
+	msgLower := strings.ToLower(message)
+
+	if strings.Contains(msgLower, "adulto") && len(numbers) > 0 {
+		reservation.CantidadAdultos = &numbers[0]
+		log.Printf("✅ Cantidad de adultos extraída: %d", numbers[0])
+	}
+
+	if (strings.Contains(msgLower, "niño") || strings.Contains(msgLower, "niños")) && len(numbers) > 1 {
+		reservation.CantidadNinhos = &numbers[1]
+		log.Printf("✅ Cantidad de niños extraída: %d", numbers[1])
+	} else if strings.Contains(msgLower, "sin niños") || strings.Contains(msgLower, "sin niño") {
+		zero := 0
+		reservation.CantidadNinhos = &zero
+		log.Printf("✅ Cantidad de niños extraída: 0")
+	}
+
+	// Intentar extraer simplemente "X personas" o "X adultos"
+	if len(numbers) > 0 {
+		if strings.Contains(msgLower, "persona") && reservation.CantidadAdultos == nil {
+			reservation.CantidadAdultos = &numbers[0]
+			log.Printf("✅ Cantidad de adultos extraída de 'personas': %d", numbers[0])
 		}
 	}
 
 	// Actualizar el paso basado en la información disponible
 	if reservation.FechaEntrada != nil && reservation.FechaSalida != nil && reservation.Step == "dates" {
 		reservation.Step = "guests"
+		log.Printf("📍 Paso actualizado a: guests")
 	}
 	if reservation.CantidadAdultos != nil && reservation.Step == "guests" {
 		reservation.Step = "room_type"
+		log.Printf("📍 Paso actualizado a: room_type")
 	}
 	if reservation.TipoHabitacionID != nil && reservation.Step == "room_type" {
 		reservation.Step = "personal_data"
+		log.Printf("📍 Paso actualizado a: personal_data")
 	}
 	if reservation.PersonalData != nil && reservation.Step == "personal_data" {
 		reservation.Step = "confirmation"
+		log.Printf("📍 Paso actualizado a: confirmation")
 	}
 }
 
@@ -848,39 +965,24 @@ func (s *ChatbotService) buildReservationContext(reservation *domain.Reservation
 	return sb.String()
 }
 
-// cleanResponseForFrontend removes all tool markers and internal reasoning from the message
-// Keeps them in logs for debugging, but sends clean output to users
-func cleanResponseForFrontend(message string) string {
-	lines := strings.Split(message, "\n")
-	var cleaned []string
+// detectCancelIntent detecta si el usuario quiere cancelar la reserva en progreso
+func (s *ChatbotService) detectCancelIntent(message string) bool {
+	msgLower := strings.ToLower(message)
 
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Skip marker lines
-		if strings.HasPrefix(trimmed, "[RESULTADO DE") ||
-			strings.HasPrefix(trimmed, "[FIN RESULTADO") ||
-			strings.HasPrefix(trimmed, "[USE_TOOL:") ||
-			strings.HasPrefix(trimmed, "[END_TOOL") {
-			continue
-		}
-
-		// ✅ NEW: Skip error detail lines (SQL, stack traces, etc.)
-		if strings.Contains(trimmed, "sql:") ||
-			strings.Contains(trimmed, "no rows in result set") ||
-			strings.Contains(trimmed, "error ejecutando herramienta") {
-			continue
-		}
-
-		cleaned = append(cleaned, line)
+	cancelKeywords := []string{
+		"cancelar", "cancela", "cancelar reserva",
+		"empezar de nuevo", "empezar otra vez",
+		"borrar", "eliminar", "deshacer",
+		"no quiero", "ya no quiero",
+		"mejor no", "olvídalo", "olvidalo",
+		"reiniciar", "restart", "reset",
 	}
 
-	result := strings.TrimSpace(strings.Join(cleaned, "\n"))
-
-	// ✅ NEW: Replace technical errors with friendly message
-	if strings.Contains(result, "Lo siento, hubo un error:") {
-		result = "Lo siento, hubo un problema al procesar tu reserva. Por favor, intenta nuevamente o contacta con un agente humano para asistencia."
+	for _, keyword := range cancelKeywords {
+		if strings.Contains(msgLower, keyword) {
+			return true
+		}
 	}
 
-	return result
+	return false
 }

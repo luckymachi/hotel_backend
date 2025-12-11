@@ -196,6 +196,27 @@ func main() {
 	s3 := api.Group("/upload")
 	s3.Post("/imagenes", S3Handler.HandleUploadFile)
 
+	// Gallery
+	galleryRepo := repository.NewGalleryRepository(db)
+	galleryService := application.NewGalleryService(galleryRepo)
+	galleryHandler := handlers.NewGalleryHandler(galleryService)
+
+	gallery := api.Group("/gallery")
+	gallery.Get("/", galleryHandler.GetImages)
+	gallery.Post("/", galleryHandler.AddImage)
+	gallery.Put("/:id", galleryHandler.UpdateImage)
+	gallery.Delete("/:id", galleryHandler.DeleteImage)
+
+	// Configuration (Web Content Management)
+	configRepo := repository.NewConfigRepository(db)
+	configService := application.NewConfigService(configRepo)
+	configHandler := handlers.NewConfigHandler(configService)
+
+	cfgGroup := api.Group("/config")
+	cfgGroup.Get("/", configHandler.GetAllConfigs)
+	cfgGroup.Get("/:key", configHandler.GetConfig)
+	cfgGroup.Put("/:key", configHandler.UpdateConfig)
+
 	log.Printf("Server starting on port %s", cfg.ServerPort)
 	if err := app.Listen(":" + cfg.ServerPort); err != nil {
 		log.Fatalf("Error starting server: %v", err)
