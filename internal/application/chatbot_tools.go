@@ -182,6 +182,99 @@ func (rt *ReservationTools) CalculatePrice(args string) (string, error) {
 	return result, nil
 }
 
+// GenerateBookingLink genera un enlace para completar la reserva en el sitio web
+/*
+func (rt *ReservationTools) GenerateBookingLink(args string) (string, error) {
+	log.Printf("GenerateBookingLink called with args: %s", args)
+
+	var input struct {
+		FechaEntrada     string  `json:"fechaEntrada"`
+		FechaSalida      string  `json:"fechaSalida"`
+		TipoHabitacionID int     `json:"tipoHabitacionId"`
+		Adultos          int     `json:"adultos"`
+		Ninos            int     `json:"ninos"`
+		Email            *string `json:"email,omitempty"`
+	}
+
+	if err := json.Unmarshal([]byte(args), &input); err != nil {
+		return "", fmt.Errorf("argumentos inválidos: %w", err)
+	}
+
+	// Validaciones básicas
+	if input.FechaEntrada == "" || input.FechaSalida == "" {
+		return "", fmt.Errorf("fechas de entrada y salida son requeridas")
+	}
+
+	if input.TipoHabitacionID < 1 {
+		return "", fmt.Errorf("tipo de habitación inválido")
+	}
+
+	if input.Adultos < 1 {
+		input.Adultos = 1
+	}
+
+	// Obtener información del tipo de habitación para el resumen
+	tipo, err := rt.habitacionRepo.GetRoomTypeByID(input.TipoHabitacionID)
+	if err != nil {
+		return "", fmt.Errorf("error al obtener tipo de habitación: %w", err)
+	}
+
+	// Calcular noches y precio estimado
+	fechaEntrada, _ := time.Parse("2006-01-02", input.FechaEntrada)
+	fechaSalida, _ := time.Parse("2006-01-02", input.FechaSalida)
+	noches := int(fechaSalida.Sub(fechaEntrada).Hours() / 24)
+	if noches < 1 {
+		noches = 1
+	}
+	precioEstimado := tipo.Precio * float64(noches)
+
+	// Construir el enlace con parámetros de query
+	// Formato: /reservas?checkIn=2025-12-20&checkOut=2025-12-27&roomTypeId=1&adults=2&children=0&email=user@email.com
+	baseURL := "/reservas"
+	params := fmt.Sprintf("?checkIn=%s&checkOut=%s&roomTypeId=%d&adults=%d&children=%d",
+		input.FechaEntrada,
+		input.FechaSalida,
+		input.TipoHabitacionID,
+		input.Adultos,
+		input.Ninos,
+	)
+
+	// Agregar email si se proporcionó
+	emailInfo := "No proporcionado"
+	if input.Email != nil && *input.Email != "" {
+		params += fmt.Sprintf("&email=%s", *input.Email)
+		emailInfo = *input.Email
+	}
+
+	bookingLink := baseURL + params
+
+	result := fmt.Sprintf("🔗 **Enlace de Reserva Generado**\n\n"+
+		"📋 **Resumen de tu reserva:**\n"+
+		"• Habitación: %s\n"+
+		"• Fecha de entrada: %s\n"+
+		"• Fecha de salida: %s\n"+
+		"• Noches: %d\n"+
+		"• Adultos: %d\n"+
+		"• Niños: %d\n"+
+		"• Precio estimado: S/%.2f\n"+
+		"• Email para ofertas: %s\n\n"+
+		"🌐 **Enlace para completar tu reserva:**\n%s\n\n"+
+		"Haz clic en el enlace o cópialo para completar tu reserva con todos los datos personales y el pago.",
+		tipo.Titulo,
+		input.FechaEntrada,
+		input.FechaSalida,
+		noches,
+		input.Adultos,
+		input.Ninos,
+		precioEstimado,
+		emailInfo,
+		bookingLink,
+	)
+
+	return result, nil
+}
+*/
+
 // CreateReservation crea una nueva reserva
 func (rt *ReservationTools) CreateReservation(args string) (string, error) {
 	log.Printf("CreateReservation called with args: %s", args)
