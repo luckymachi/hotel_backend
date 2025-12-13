@@ -481,6 +481,15 @@ func (s *ReservaService) GetReservasEnRango(fechaInicio, fechaFin time.Time) ([]
 	return s.reservaHabitacionRepo.GetReservasEnRango(fechaInicio, fechaFin)
 }
 
+// GetRoomTypePrice obtiene el precio de un tipo de habitación por su ID
+func (s *ReservaService) GetRoomTypePrice(roomTypeID int) (float64, error) {
+	roomType, err := s.habitacionRepo.GetRoomTypeByID(roomTypeID)
+	if err != nil {
+		return 0, fmt.Errorf("error al obtener tipo de habitación: %w", err)
+	}
+	return roomType.Precio, nil
+}
+
 // generarYEnviarEncuesta genera un token de encuesta y envía el email al cliente
 func (s *ReservaService) generarYEnviarEncuesta(reservaID, clienteID int, email string) {
 	// Generar token de encuesta

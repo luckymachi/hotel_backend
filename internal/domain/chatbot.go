@@ -32,7 +32,9 @@ type ReservationInProgress struct {
 	TipoHabitacionID *int               `json:"tipoHabitacionId,omitempty"`
 	PersonalData     *PersonalDataInput `json:"personalData,omitempty"`
 	PrecioCalculado  *float64           `json:"precioCalculado,omitempty"`
-	Step             string             `json:"step"` // dates, guests, room_type, personal_data, confirmation, completed
+	Email            *string            `json:"email,omitempty"`           // Email opcional para ofertas
+	EmailSkipped     bool               `json:"emailSkipped,omitempty"`    // Si el usuario omitió el email
+	Step             string             `json:"step"`                      // dates, guests, room_type, email_collection, ready_to_book, completed
 }
 
 // PersonalDataInput representa los datos personales para crear una reserva
