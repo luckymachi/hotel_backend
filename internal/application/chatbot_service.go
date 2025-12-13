@@ -478,21 +478,27 @@ INSTRUCCIONES CRÍTICAS:
 
 Tu objetivo es ayudar a los huéspedes con:
 - Información sobre habitaciones (SOLO las que aparecen en la información real)
-- Proceso de reservas COMPLETO (puedes crear reservas usando las herramientas)
+- Proceso de reservas (recopilar información y generar enlace de reserva)
 - Políticas del hotel (check-in 14:00, check-out 12:00)
 - Tarifas reales del sistema
 
 FLUJO DE RESERVAS:
-Cuando un usuario quiera hacer una reserva, sigue estos pasos:
+Cuando un usuario quiera hacer una reserva, sigue estos pasos EN ORDEN:
 1. Pregunta fechas de entrada y salida
 2. Pregunta cantidad de adultos y niños
 3. USA LA HERRAMIENTA 'check_availability' para verificar disponibilidad
 4. Muestra las opciones disponibles usando 'get_room_types' si es necesario
 5. Pregunta qué tipo de habitación prefiere
 6. USA LA HERRAMIENTA 'calculate_price' para calcular el precio total
-7. Pregunta los datos personales: nombre, apellidos, documento, email, teléfono
-8. USA LA HERRAMIENTA 'create_reservation' para crear la reserva con TODOS los datos
-9. Confirma que la reserva fue creada exitosamente
+7. **IMPORTANTE - PASO DE EMAIL**: Antes de generar el enlace de reserva, pregunta al usuario su correo electrónico.
+   Explica que es OPCIONAL pero que le permitirá:
+   - Recibir ofertas exclusivas y descuentos especiales
+   - Enterarse primero de promociones de temporada
+   - Recibir información sobre eventos especiales del hotel
+   Si el usuario no desea proporcionar su email, respeta su decisión y continúa al siguiente paso.
+   Si el usuario dice "no", "prefiero no", "omitir", "saltar" o similar, acepta y continúa.
+8. USA LA HERRAMIENTA 'generate_booking_link' para generar el enlace de reserva con todos los datos recopilados
+9. Proporciona el enlace al usuario para que complete su reserva en el sitio web
 
 POLÍTICAS DEL HOTEL:
 - Check-in: 14:00 hrs
@@ -508,6 +514,7 @@ IMPORTANTE:
 - Cuando uses una herramienta, explica al usuario qué estás haciendo
 - Responde en español a menos que el usuario escriba en otro idioma
 - NUNCA inventes información, usa siempre las herramientas o la información proporcionada
+- El paso del email es OPCIONAL - no insistas si el usuario no quiere proporcionarlo
 
 `
 
@@ -683,9 +690,10 @@ func (s *ChatbotService) updateReservationState(conversation *domain.Conversatio
 func (s *ChatbotService) extractReservationData(reservation *domain.ReservationInProgress, message string) {
 	// Intentar extraer fechas (formato YYYY-MM-DD o DD/MM/YYYY)
 	// Esto es básico, se podría mejorar con NLP más sofisticado
+	msgLower := strings.ToLower(message)
 
 	// Intentar extraer cantidad de adultos
-	if strings.Contains(strings.ToLower(message), "adulto") {
+	if strings.Contains(msgLower, "adulto") {
 		// Buscar números en el mensaje
 		var num int
 		if _, err := fmt.Sscanf(message, "%d", &num); err == nil && num > 0 {
@@ -695,11 +703,43 @@ func (s *ChatbotService) extractReservationData(reservation *domain.ReservationI
 	}
 
 	// Intentar extraer cantidad de niños
-	if strings.Contains(strings.ToLower(message), "niño") || strings.Contains(strings.ToLower(message), "niños") {
+	if strings.Contains(msgLower, "niño") || strings.Contains(msgLower, "niños") {
 		var num int
 		if _, err := fmt.Sscanf(message, "%d", &num); err == nil {
 			reservation.CantidadNinhos = &num
 			log.Printf("Cantidad de niños extraída: %d", num)
+		}
+	}
+
+	// Intentar extraer email si estamos en el paso de email_collection
+	if reservation.Step == "email_collection" {
+		// Detectar si el usuario quiere omitir el email
+		skipPhrases := []string{
+			"no gracias", "no, gracias", "prefiero no", "no quiero",
+			"omitir", "saltar", "skip", "no deseo", "sin email",
+			"no tengo", "mejor no", "paso", "siguiente",
+		}
+		for _, phrase := range skipPhrases {
+			if strings.Contains(msgLower, phrase) {
+				reservation.EmailSkipped = true
+				log.Printf("Usuario omitió proporcionar email")
+				break
+			}
+		}
+
+		// Intentar extraer email del mensaje (patrón simple)
+		if !reservation.EmailSkipped {
+			// Buscar patrón de email simple
+			words := strings.Fields(message)
+			for _, word := range words {
+				// Limpiar el word de puntuación
+				word = strings.Trim(word, ".,;:!?()[]{}\"'")
+				if strings.Contains(word, "@") && strings.Contains(word, ".") {
+					reservation.Email = &word
+					log.Printf("Email extraído: %s", word)
+					break
+				}
+			}
 		}
 	}
 
@@ -711,10 +751,10 @@ func (s *ChatbotService) extractReservationData(reservation *domain.ReservationI
 		reservation.Step = "room_type"
 	}
 	if reservation.TipoHabitacionID != nil && reservation.Step == "room_type" {
-		reservation.Step = "personal_data"
+		reservation.Step = "email_collection"
 	}
-	if reservation.PersonalData != nil && reservation.Step == "personal_data" {
-		reservation.Step = "confirmation"
+	if (reservation.Email != nil || reservation.EmailSkipped) && reservation.Step == "email_collection" {
+		reservation.Step = "ready_to_book"
 	}
 }
 
@@ -747,8 +787,21 @@ func (s *ChatbotService) buildReservationContext(reservation *domain.Reservation
 	if reservation.PrecioCalculado != nil {
 		sb.WriteString(fmt.Sprintf("Precio calculado: S/%.2f\n", *reservation.PrecioCalculado))
 	}
-	if reservation.PersonalData != nil {
-		sb.WriteString("Datos personales proporcionados\n")
+	if reservation.Email != nil {
+		sb.WriteString(fmt.Sprintf("Email para ofertas: %s\n", *reservation.Email))
+	}
+	if reservation.EmailSkipped {
+		sb.WriteString("Email: Usuario prefirió no proporcionar\n")
+	}
+
+	// Instrucciones específicas según el paso actual
+	switch reservation.Step {
+	case "email_collection":
+		sb.WriteString("\n** ACCIÓN REQUERIDA: Pregunta al usuario su email (es OPCIONAL). **\n")
+		sb.WriteString("Explica que es para recibir ofertas exclusivas, descuentos y promociones.\n")
+		sb.WriteString("Si dice 'no', 'omitir', 'saltar', 'prefiero no', etc., respeta su decisión y continúa.\n")
+	case "ready_to_book":
+		sb.WriteString("\n** ACCIÓN REQUERIDA: Genera el enlace de reserva con 'generate_booking_link'. **\n")
 	}
 
 	sb.WriteString("\nRecuerda continuar el proceso de reserva según el paso actual.\n")
