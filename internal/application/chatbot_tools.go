@@ -60,13 +60,8 @@ func (rt *ReservationTools) GetAvailableTools() []Tool {
 			Execute:     rt.CalculatePrice,
 		},
 		{
-			Name:        "generate_booking_link",
-			Description: "Genera un enlace para completar la reserva en el sitio web. Args: {\"fechaEntrada\": \"YYYY-MM-DD\", \"fechaSalida\": \"YYYY-MM-DD\", \"tipoHabitacionId\": 1, \"adultos\": 2, \"ninos\": 0, \"email\": \"opcional@email.com\"}",
-			Execute:     rt.GenerateBookingLink,
-		},
-		{
 			Name:        "create_reservation",
-			Description: "Crea una nueva reserva directamente (uso interno). Args: JSON con todos los datos de la reserva incluyendo fechas, habitación, datos personales del cliente",
+			Description: "Crea una nueva reserva. Args: JSON con todos los datos de la reserva incluyendo fechas, habitación, datos personales del cliente",
 			Execute:     rt.CreateReservation,
 		},
 		{
