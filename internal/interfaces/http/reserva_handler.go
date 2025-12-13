@@ -149,9 +149,21 @@ func (h *ReservaHandler) CreateReserva(c *fiber.Ctx) error {
 			})
 		}
 
+		// Obtener el precio del tipo de habitación desde la BD si no se proporciona
+		precio := hab.Precio
+		if precio <= 0 {
+			roomTypePrice, err := h.service.GetRoomTypePrice(hab.RoomTypeID)
+			if err != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"error": fmt.Sprintf("Error al obtener precio del tipo de habitación %d: %v", hab.RoomTypeID, err),
+				})
+			}
+			precio = roomTypePrice
+		}
+
 		habitaciones[i] = domain.ReservaHabitacion{
 			HabitacionID: habitacionID,
-			Precio:       hab.Precio,
+			Precio:       precio,
 			FechaEntrada: fechaEntrada,
 			FechaSalida:  fechaSalida,
 			Estado:       1, // Activa
