@@ -188,6 +188,7 @@ func (rt *ReservationTools) CalculatePrice(args string) (string, error) {
 }
 
 // GenerateBookingLink genera un enlace para completar la reserva en el sitio web
+/*
 func (rt *ReservationTools) GenerateBookingLink(args string) (string, error) {
 	log.Printf("GenerateBookingLink called with args: %s", args)
 
@@ -277,6 +278,7 @@ func (rt *ReservationTools) GenerateBookingLink(args string) (string, error) {
 
 	return result, nil
 }
+*/
 
 // CreateReservation crea una nueva reserva
 func (rt *ReservationTools) CreateReservation(args string) (string, error) {
